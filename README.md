@@ -1,4 +1,4 @@
-# M-Team + qBittorrent · 0.3.0
+# M-Team + qBittorrent · 0.3.1
 
 Hermes 原生插件
 
@@ -149,7 +149,7 @@ mteam-qbit:mteam-qbit
 - 文件级权限和不回显**不等于静态加密**。Hermes 底层凭据存储方式由你的部署决定，不能宣称本插件额外加密。
 - API 挂在 Hermes 自身 `/api/plugins/mteam-qbit/`，使用宿主认证、禁用 gate 和 profile/secret scope，无单独监听端口。前端用 SDK.fetchJSON，不手工读取会话 token；配置/凭据路径每次请求计算，不全局缓存 profile。
 - 私密字段只接受固定白名单；空值保留；修改失败可能部分凭据已更新，页面会提示刷新检查。
-- 凭据若仍在旧 Compose 环境变量中，应核对 Hermes 凭据优先级，避免旧值覆盖新值；正常 0.3.0 安装不需额外 env_file。
+- 凭据若仍在旧 Compose 环境变量中，应核对 Hermes 凭据优先级，避免旧值覆盖新值；正常 0.3.1 安装不需额外 env_file。
 - `user_confirmed` 是模型声明，**不是不可绕过的独立审批系统**。不向陌生人/公共群开放插件或任意 shell；本版没有实现分渠道/分用户授权，也没有额外绕过 Hermes 权限。
 - 目标主机为管理员配置，信任 DNS；不是网络沙箱。凭据不跟随下载 URL 转发，带 token 的完整下载链接不暴露给模型。
 - 种子提交后可能下载和做种。确认摘要绑定资源 ID/标题/路径而非事先取得的内容哈希，需信任站点不会在两步之间替换内容。
@@ -216,3 +216,11 @@ cd tests/ui && npm install --ignore-scripts && npm test
 测试不会下载。插件显示的错误码用于区分 `credential_missing`（当前 Profile 凭据未读到）、`network`（连接/超时）、`redirect`（拒绝跨地址转发凭据）、`invalid_json`（可能返回网页/防护页）、`http_401`/`http_403`/`http_429` 等 HTTP 状态、`mteam_rejected`（站点业务拒绝/未知结构）、`search_schema`（搜索响应结构不兼容）。这些分类不等于已确认根因，例如 403 不能直接断定 Key 错了。
 
 `api.m-team.cc` 与 `api.m-team.io` 都曾列在站点官方 API 域名公告中。应核对自己站点当前公布的 API 地址及容器可达性，不要把 `kp.m-team.cc` 网页首页直接当 API，也不要随意把凭据发送到未经确认的替代域名。仅提交错误码和非敏感配置帮助排查，不发送 Key、Cookie 或完整响应正文。公告参考：https://t.me/s/M_Team?before=340 。
+
+## 0.3.1 更新记录
+
+- 修复测试连接失败时前端统一隐藏原因的问题：现在显示脱敏错误码及静态解释，区分凭据未读取、HTTP 状态、网络超时、跳转、JSON/搜索结构等；不返回密钥、Cookie、完整 URL 或上游响应正文。
+- 对齐插件与 Dashboard manifest 的版本号，增加版本/资产一致性测试。
+- 完善配置入口、当前 Profile、Dashboard 进程重启及连接失败排查说明。
+- 32 项离线 Python 测试及 React/JSDOM 页面测试通过。此补丁改善诊断，**不表示已经查明或修复用户实际网络/认证故障**；未使用真实账户联调或提交下载。
+- 更新后重启提供 Dashboard 的进程/容器并强制刷新浏览器，再测试一次。若仍失败，记录错误码即可，不要发送密钥或请求头。
