@@ -164,6 +164,18 @@ class Tests(unittest.TestCase):
         self.assertEqual(json.loads(http.calls[2][0][3])['categories'],ids)
         with self.assertRaises(PluginError):
             mt.search('sample',category_ids=['1']*2001)
+    @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
+    def test_unfiltered_pagination_omits_empty_ids(self):
+        http=FakeHTTP([b'{"code":0,"data":{"data":[],"totalPages":3}}']*2)
+        mt=MTeam({'base_url':'https://example.com'},http)
+        first=mt.search('sample')
+        self.assertEqual(first['category_ids'],[])
+        second=mt.search('sample',page=first['next_page'],category='all')
+        self.assertEqual(json.loads(http.calls[1][0][3])['categories'],[])
+        self.assertEqual(second['page'],2)
+        self.assertEqual(second['next_page'],3)
+        skill=(Path(__file__).resolve().parents[1]/'skills/mteam-qbit/SKILL.md').read_text()
+        self.assertIn('omit category_ids entirely and pass category=all',skill)
     def test_bad_endpoint(self):
         for path in ['//evil/x','https://evil','/../x','/x?key=abc']:
             with self.assertRaises(PluginError):endpoint('https://example.com',path)
