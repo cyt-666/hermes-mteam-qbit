@@ -71,7 +71,7 @@ def guarded(fn, *args):
 @router.get('/settings')
 def get_settings():
     return guarded(lambda: {'settings': settings.read_settings(), 'secrets_set': settings.secret_presence(),
-                            'backend_version': '0.3.4', 'business_build': BUSINESS_BUILD, 'compatibility': 'Hermes v0.23.1 Dashboard SDK 1.1.0; live deployment not certified'})
+                            'backend_version': '0.3.5', 'business_build': BUSINESS_BUILD, 'compatibility': 'Hermes v0.23.1 Dashboard SDK 1.1.0; live deployment not certified'})
 
 
 @router.put('/settings')
@@ -133,10 +133,30 @@ def probe_error(exc):
     return {'ok': False, 'code': code, 'message': message}
 
 
+def credential_diagnostics(target):
+    # Compare in this request's current profile secret scope. Never export even
+    # a fingerprint, prefix, length, source name, or exception text.
+    if target != 'mteam':
+        return None
+    try:
+        from agent.secret_scope import get_secret, load_env_file
+        effective = get_secret('MTEAM_API_KEY')
+        saved = load_env_file(settings.config_path().parent.parent / '.env').get('MTEAM_API_KEY')
+        return {'effective_present': bool(effective), 'profile_saved_present': bool(saved),
+                'effective_matches_saved': effective == saved if effective and saved else None}
+    except Exception:
+        return {'effective_present': None, 'profile_saved_present': None, 'effective_matches_saved': None}
+
+
 @router.post('/test/{target}')
 def test_connection(target: str):
+    diagnostics = credential_diagnostics(target)
     try:
-        return probe(target)
+        result = probe(target)
     except Exception as exc:
-        return probe_error(exc)
-
+        result = probe_error(exc)
+        if isinstance(exc, core.ServiceHTTPError):
+            result['http_diagnostics'] = exc.http_diagnostics
+    if diagnostics is not None:
+        result['credential_diagnostics'] = diagnostics
+    return result

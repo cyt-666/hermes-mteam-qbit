@@ -1,4 +1,4 @@
-# M-Team + qBittorrent · 0.3.4
+# M-Team + qBittorrent · 0.3.5
 
 Hermes 原生插件
 
@@ -13,7 +13,7 @@ Hermes 原生插件：搜索馒头资源、查看信息，并将用户明确选�
 - 注意：普通 Web Dashboard **不会自动渲染通用 config_schema**；Desktop 的表单不能替代 Web 验证。因此本插件实现了专用 Web 页面，不依赖该自动表单。
 - SDK 上游文档仍标 SPIKE：**不保证所有旧版或未来版本兼容**。如果使用别的版本，应核实后再部署。
 - 支持 qBittorrent 4.x / 5.x，分别使用 paused / stopped 字段。暂只支持 v1/混合种子，纯 v2 不支持；种子大小上限 8 MiB。
-- 已通过：35 项离线 Python 单元/API 测试，JS 语法检查，以及 React + JSDOM 的页面渲染/默认路径编辑/保存请求/密码清空/测试按钮模拟检查。测试覆盖注册、配置校验/脱敏、profile 路径、凭据白名单、API 路由、请求确认、提交查重、超时防重投、qBit 版本参数。
+- 已通过：39 项离线 Python 单元/API 测试，JS 语法检查，以及 React + JSDOM 的页面渲染/默认路径编辑/保存请求/密码清空/测试按钮模拟检查。测试覆盖注册、配置校验/脱敏、profile 路径、凭据白名单、API 路由、请求确认、提交查重、超时防重投、qBit 版本参数。
 - **尚未完成：用户的真实 Hermes 全进程加载、馒头账户和真实 qBittorrent 端到端联调。**当前执行环境阻止 Chromium 启动，因此未完成真实浏览器视觉验收。源码契约核实、JSDOM 和本地 mock 测试不能替代部署验收。
 
 ## 功能
@@ -56,7 +56,7 @@ hermes-data/
     ├── dashboard/
     │   ├── manifest.json
     │   ├── plugin_api.py
-    │   └── dist/index-0.3.4.js
+    │   └── dist/index-0.3.5.js
     ├── skills/mteam-qbit/SKILL.md
     ├── tests/
     └── README.md
@@ -169,7 +169,7 @@ mteam-qbit:mteam-qbit
 
 ```sh
 python -m unittest discover -s tests -v
-node --check dashboard/dist/index-0.3.4.js
+node --check dashboard/dist/index-0.3.5.js
 # 可选：DOM 模拟测试（开发者环境，非用户安装步骤）
 cd tests/ui && npm install --ignore-scripts && npm test
 ```
@@ -206,8 +206,8 @@ cd tests/ui && npm install --ignore-scripts && npm test
 若没有该入口：
 1. 确认运行的是支持 Dashboard 扩展的 Hermes v0.23.1 兼容构建，并且当前管理 Profile 启用了 `mteam-qbit`。工具集可见并不证明 Dashboard 已加载。
 2. 重启 **提供网页的 Dashboard 进程/容器**，而非只重启 Telegram Gateway；浏览器强制刷新。若两者在不同容器，Dashboard 也必须能读到插件文件。
-3. 核对实际插件目录下同时存在 `dashboard/manifest.json`、`dashboard/dist/index-0.3.4.js`、`dashboard/plugin_api.py`；不要只复制 Python 文件或多嵌套一层目录。使用进程 launch home / 默认 Hermes root 下的 `plugins`；不要只把文件放在任意聊天工作目录。
-4. 同一已登录 Dashboard 浏览器的开发者工具 Network 中，检查 `/api/dashboard/plugins` 返回是否包含 `mteam-qbit`（使用页面本身请求，保持当前 Profile 与 URL 前缀）。没有：发现/启用/版本问题；有但 JS 失败：检查其 `/dashboard-plugins/.../mteam-qbit/dist/index-0.3.4.js` 请求；页面出现但读取配置失败：检查 `/api/plugins/mteam-qbit/settings` 与 Dashboard 日志。401 是登录，404 可能是未启用/未挂载/版本不兼容，不能只凭状态码断定。
+3. 核对实际插件目录下同时存在 `dashboard/manifest.json`、`dashboard/dist/index-0.3.5.js`、`dashboard/plugin_api.py`；不要只复制 Python 文件或多嵌套一层目录。使用进程 launch home / 默认 Hermes root 下的 `plugins`；不要只把文件放在任意聊天工作目录。
+4. 同一已登录 Dashboard 浏览器的开发者工具 Network 中，检查 `/api/dashboard/plugins` 返回是否包含 `mteam-qbit`（使用页面本身请求，保持当前 Profile 与 URL 前缀）。没有：发现/启用/版本问题；有但 JS 失败：检查其 `/dashboard-plugins/.../mteam-qbit/dist/index-0.3.5.js` 请求；页面出现但读取配置失败：检查 `/api/plugins/mteam-qbit/settings` 与 Dashboard 日志。401 是登录，404 可能是未启用/未挂载/版本不兼容，不能只凭状态码断定。
 
 不要在排查截图或日志里公开密钥、Cookie、Authorization。当前未完成用户实际容器联调，不能把“刷新一下”当成已确认修复。
 
@@ -222,7 +222,7 @@ cd tests/ui && npm install --ignore-scripts && npm test
 - 修复测试连接失败时前端统一隐藏原因的问题：现在显示脱敏错误码及静态解释，区分凭据未读取、HTTP 状态、网络超时、跳转、JSON/搜索结构等；不返回密钥、Cookie、完整 URL 或上游响应正文。
 - 对齐插件与 Dashboard manifest 的版本号，增加版本/资产一致性测试。
 - 完善配置入口、当前 Profile、Dashboard 进程重启及连接失败排查说明。
-- 35 项离线 Python 测试及 React/JSDOM 页面测试通过。此补丁改善诊断，**不表示已经查明或修复用户实际网络/认证故障**；未使用真实账户联调或提交下载。
+- 39 项离线 Python 测试及 React/JSDOM 页面测试通过。此补丁改善诊断，**不表示已经查明或修复用户实际网络/认证故障**；未使用真实账户联调或提交下载。
 - 更新后重启提供 Dashboard 的进程/容器并强制刷新浏览器，再测试一次。若仍失败，记录错误码即可，不要发送密钥或请求头。
 
 ## 0.3.2 更新记录
@@ -253,3 +253,11 @@ cd tests/ui && npm install --ignore-scripts && npm test
 现按安装路径及完整 `__init__.py`、`core.py`、`settings.py` 源码快照构建独立命名空间，直接编译快照避免同时间/同大小的旧 pyc；新代加载失败不会移除旧代，已开始的请求仍持有原代引用。页面额外显示实际加载的业务构建 SHA 前缀（不是凭据/配置哈希）。配置和凭据仍在请求时按当前 Profile 获取，不缓存用户配置。
 
 真实源码回归测试覆盖 API 二次导入前修改 core/settings、同版复用、失败旧代保留和不同安装路径隔离；35 项 Python 测试及 DOM 测试通过。此修复保证**宿主确实重新导入 API 时**获得新业务代码，并不替换宿主已挂载路由，也不证明用户 HTTP 400 的具体原因。当前旧进程仍须按其部署方式重新加载。
+
+## 0.3.5：最小脱敏诊断
+
+馒头连接测试新增三个布尔/未知值：当前生效凭据是否存在、当前 Profile `.env` 保存值是否存在、生效值是否等于保存值。只在当前请求 Profile 比较，不返回值、长度、指纹、前后缀或来源名称。若不一致，可能被外部凭据来源、managed 环境配置等覆盖；相等也不能证明 API Key 有效。未知表示无法读取对应诊断，不能当成未设置。
+
+HTTP 错误仅提供状态和 JSON/HTML/other 分类、Cloudflare 响应标记与 challenge 标记是否出现。不会读取或回显响应正文、Cookie、请求头、完整 URL。Cloudflare 标记表示路径经过相关服务，不等于确认 WAF 是拒绝原因；缺少标记也不能排除代理。仅 HTTP403 无法确定 Key、账户权限、出口 IP 或防护等具体原因。
+
+39 项 Python 测试及 DOM 测试通过；未使用真实凭据或修改用户配置。新增诊断不能让当前旧后端自动重载，仍按已说明的 Dashboard 生命周期生效。

@@ -2,6 +2,9 @@
 import importlib.util
 from pathlib import Path
 import unittest
+import types
+import sys
+import json
 from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -17,7 +20,7 @@ class DashboardTests(unittest.TestCase):
         with patch.object(api.settings,'read_settings',return_value=api.settings.DEFAULTS),patch.object(api.settings,'secret_presence',return_value={'mteam_api_key':True}):
             res=self.client.get('/api/plugins/mteam-qbit/settings')
             self.assertEqual(res.status_code,200)
-            self.assertEqual(res.json()['backend_version'],'0.3.4')
+            self.assertEqual(res.json()['backend_version'],'0.3.5')
             self.assertTrue(res.json()['secrets_set']['mteam_api_key'])
             self.assertNotIn('value',res.json()['secrets_set'])
     def test_save_route_delegates(self):
@@ -41,6 +44,29 @@ class DashboardTests(unittest.TestCase):
                 self.assertEqual(res.json()['code'],code)
                 self.assertFalse(res.json()['ok'])
                 self.assertNotIn('DO_NOT_ECHO',res.text)
+    def test_credential_comparison_only_booleans(self):
+        for effective,saved,match in [('SECRET_A','SECRET_A',True),('SECRET_B','SECRET_A',False),('', 'SECRET_A',None)]:
+            scope=types.ModuleType('agent.secret_scope')
+            scope.get_secret=lambda key:effective
+            scope.load_env_file=lambda path:{'MTEAM_API_KEY':saved}
+            with patch.dict(sys.modules,{'agent':types.ModuleType('agent'),'agent.secret_scope':scope}),patch.object(api.settings,'config_path',return_value=Path('/profile/mteam-qbit/config.json')):
+                data=api.credential_diagnostics('mteam')
+                self.assertEqual(data['effective_matches_saved'],match)
+                self.assertTrue(all(v is None or type(v) is bool for v in data.values()))
+                self.assertNotIn('SECRET',json.dumps(data))
+    def test_http_diagnostics_safe_classification(self):
+        err=api.core.ServiceHTTPError(403,{'Content-Type':'text/html; secret=DO_NOT_ECHO','Server':'cloudflare','cf-ray':'DO_NOT_ECHO','cf-mitigated':'challenge','Set-Cookie':'DO_NOT_ECHO'})
+        with patch.object(api,'probe',side_effect=err),patch.object(api,'credential_diagnostics',return_value=None):
+            result=self.client.post('/api/plugins/mteam-qbit/test/mteam').json()
+            self.assertEqual(result['http_diagnostics']['response_type'],'html')
+            self.assertTrue(result['http_diagnostics']['challenge_header'])
+            self.assertNotIn('DO_NOT_ECHO',json.dumps(result))
+    def test_no_http_diagnostics_from_arbitrary_exception(self):
+        err=RuntimeError('DO_NOT_ECHO');err.http_diagnostics={'secret':'DO_NOT_ECHO'}
+        with patch.object(api,'probe',side_effect=err),patch.object(api,'credential_diagnostics',return_value=None):
+            result=self.client.post('/api/plugins/mteam-qbit/test/mteam').json()
+            self.assertNotIn('http_diagnostics',result)
+            self.assertNotIn('DO_NOT_ECHO',json.dumps(result))
     def test_probe_route_no_download(self):
         with patch.object(api,'probe',return_value={'ok':True,'message':'test only'}) as probe:
             res=self.client.post('/api/plugins/mteam-qbit/test/qbit')

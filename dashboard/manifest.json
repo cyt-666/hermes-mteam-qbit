@@ -3,12 +3,12 @@
   "label": "M-Team 下载",
   "description": "馒头与 qBittorrent 配置、连接测试及保存目录",
   "icon": "Download",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "tab": {
     "path": "/mteam-qbit",
     "position": "after:skills"
   },
   "slots": [],
-  "entry": "dist/index-0.3.4.js",
+  "entry": "dist/index-0.3.5.js",
   "api": "plugin_api.py"
 }

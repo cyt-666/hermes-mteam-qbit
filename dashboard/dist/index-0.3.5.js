@@ -6,7 +6,7 @@
   const R = sdk.React, h = R.createElement;
   const {useState, useEffect} = sdk.hooks;
   const base = '/api/plugins/mteam-qbit';
-  const FRONTEND_VERSION = '0.3.4';
+  const FRONTEND_VERSION = '0.3.5';
   const inputStyle = {padding:'9px',border:'1px solid #8886',borderRadius:'6px',background:'transparent',color:'inherit',width:'100%'};
   const btnStyle = {padding:'9px 15px',border:'1px solid #8888',borderRadius:'6px',marginRight:'8px',cursor:'pointer'};
   function Page() {
@@ -47,7 +47,17 @@
         if (!result || typeof result.ok!=='boolean' || typeof result.message!=='string') {
           setMessage('Dashboard 返回非预期响应；可能为旧后端或代理页面。请重启提供网页的进程并核对前后端版本。未确认馒头状态。');
         } else {
-          setMessage((result.ok ? '' : '测试失败 ['+(/^[a-z_0-9]+$/.test(result.code||'')?result.code:'probe_failed')+']：')+result.message);
+          let details='';
+          const c=result.credential_diagnostics;
+          if(c) {
+            const bool=x=>x===true?'是':x===false?'否':'未知';
+            details+=' 当前生效凭据存在：'+bool(c.effective_present)+'；当前 Profile 保存值存在：'+bool(c.profile_saved_present)+'；两者一致：'+bool(c.effective_matches_saved)+'。';
+          }
+          const d=result.http_diagnostics;
+          if(d) {
+            details+=' 响应类型：'+(['json','html','other'].includes(d.response_type)?d.response_type:'未知')+'；Cloudflare 标记：'+(d.cloudflare_header_present===true||d.cloudflare_server===true?'有':'未见')+'；挑战响应标记：'+(d.challenge_header===true?'有':'未见')+'。标记不能单独确认拒绝原因。';
+          }
+          setMessage((result.ok ? '' : '测试失败 ['+(/^[a-z_0-9]+$/.test(result.code||'')?result.code:'probe_failed')+']：')+result.message+details);
         }
       } catch (error) {
         // ApiError.status is numeric. Never display error.message/body/url or arbitrary response content.

@@ -17,6 +17,21 @@ class PluginError(Exception):
     pass
 
 
+class ServiceHTTPError(PluginError):
+    def __init__(self, status, headers):
+        super().__init__('Service HTTP error %s (URL/body omitted).' % status)
+        # Only categorical/boolean diagnostics. Never retain body, URL or headers.
+        content_type = (headers.get('Content-Type', '') if headers else '').split(';', 1)[0].strip().lower()
+        self.http_diagnostics = {
+            'status': int(status),
+            'response_type': 'json' if content_type == 'application/json' or content_type.endswith('+json') else 'html' if content_type in ('text/html', 'application/xhtml+xml') else 'other',
+            'cloudflare_header_present': bool(headers and headers.get('cf-ray')),
+            'cloudflare_server': bool(headers and headers.get('Server', '').lower().strip() == 'cloudflare'),
+            'challenge_header': bool(headers and headers.get('cf-mitigated', '').lower().strip() == 'challenge'),
+        }
+
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise PluginError('Redirect refused; verify configured service hostname.')
@@ -35,7 +50,7 @@ class HTTP:
                     raise PluginError('Response exceeds size limit.')
                 return result
         except urllib.error.HTTPError as e:
-            raise PluginError('Service HTTP error %s (URL/body omitted).' % e.code) from None
+            raise ServiceHTTPError(e.code, e.headers) from None
         except (urllib.error.URLError, TimeoutError, OSError):
             raise PluginError('Service connection failed or timed out; credentials/URL omitted.') from None
 

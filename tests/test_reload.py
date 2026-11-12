@@ -37,6 +37,13 @@ class ReloadTests(unittest.TestCase):
         self.assertIs(sys.modules[a.PACKAGE].core,a.core)
         core.write_text(original)
         self.assertIs(self.load().core,a.core)
+    def test_settings_failure_retry_and_cleanup(self):
+        a=self.load();path=self.root/'settings.py';original=path.read_text()
+        path.write_text(original+'\nraise RuntimeError("late")\n')
+        with self.assertRaises(RuntimeError):self.load()
+        self.assertIs(sys.modules[a.PACKAGE].core,a.core)
+        path.write_text(original+'\nAUDIT_MARKER="fixed"\n')
+        b=self.load();self.assertEqual(b.settings.AUDIT_MARKER,'fixed')
     def test_distinct_install_namespaces(self):
         a=self.load()
         with tempfile.TemporaryDirectory() as other:
