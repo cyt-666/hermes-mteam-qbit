@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.env
+config.json
+*.sqlite3*
+*.env
+*.env.*
+!*.env.example
+*.db
+*.db-*
+*.torrent
+
+node_modules/

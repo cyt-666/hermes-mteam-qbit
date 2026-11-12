@@ -1,0 +1,24 @@
+{
+  "mteam": {
+    "base_url": "https://api.m-team.cc",
+    "api_key_env": "MTEAM_API_KEY",
+    "search_path": "/api/torrent/search",
+    "detail_path": "/api/torrent/detail",
+    "download_path": "/api/torrent/genDlToken",
+    "download_hosts": ["api.m-team.cc"],
+    "search_mode": "normal"
+  },
+  "qbittorrent": {
+    "base_url": "http://qbittorrent:8080",
+    "username_env": "QBIT_USERNAME",
+    "password_env": "QBIT_PASSWORD"
+  },
+  "destinations": {
+    "movies": "/downloads/movies",
+    "tv": "/downloads/tv"
+  },
+  "category": "hermes",
+  "start_paused": false,
+  "state_path": "~/.hermes/mteam-qbit/state.sqlite3",
+  "approval_ttl_seconds": 900
+}

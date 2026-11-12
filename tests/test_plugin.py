@@ -1,0 +1,103 @@
+import hashlib
+import importlib.util
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+from core import App, MTeam, QBit, PluginError, torrent_hash, endpoint, base_url
+
+TORRENT = b'd4:infod6:lengthi1e4:name1:x6:pieces20:abcdefghijklmnopqrstee'
+class MT:
+    def details(self,rid): return {'title':'Authorized sample','id':rid}
+    def torrent(self,rid): return TORRENT
+class QB:
+    def __init__(self): self.tasks=[]; self.calls=[]; self.fail=False
+    def login(self): pass
+    def info(self,h): return self.tasks
+    def add(self,t,p,c,paused):
+        self.calls.append((t,p,c,paused))
+        if self.fail: raise TimeoutError('secret URL')
+        self.tasks=[{'hash':torrent_hash(t),'save_path':p,'state':'stoppedDL'}]
+class FakeHTTP:
+    def __init__(self, replies): self.replies=list(replies); self.calls=[]
+    def request(self,*args,**kw): self.calls.append((args,kw)); return self.replies.pop(0)
+
+class Tests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory()
+        self.cfg={'destinations':{'movies':'/downloads/movies'},'state_path':self.tmp.name+'/state.db','mteam':{},'qbittorrent':{}}
+        self.q=QB();self.app=App(self.cfg,MT(),self.q)
+    def tearDown(self): self.app.db.close();self.tmp.cleanup()
+    def prepared(self): return self.app.prepare('123','movies')['request_id']
+    def test_approval_required(self):
+        rid=self.prepared()
+        with self.assertRaises(PluginError): self.app.submit(rid)
+        self.assertFalse(self.q.calls)
+    def test_submit_and_duplicate(self):
+        rid=self.prepared()
+        self.assertEqual(self.app.submit(rid, user_confirmed=True)['state'],'present')
+        self.app.submit(rid)
+        self.assertEqual(len(self.q.calls),1)
+        self.assertEqual(self.q.calls[0][1],'/downloads/movies')
+        self.assertFalse(self.q.calls[0][3])
+    def test_timeout_never_resends(self):
+        rid=self.prepared();self.app.approve(rid);self.q.fail=True
+        with self.assertRaisesRegex(PluginError,'uncertain'):self.app.submit(rid)
+        self.assertEqual(self.app.submit(rid)['state'],'unknown')
+        self.assertEqual(len(self.q.calls),1)
+    def test_expiry(self):
+        rid=self.prepared()
+        with patch('core.time.time',return_value=1e12):
+            with self.assertRaises(PluginError):self.app.approve(rid)
+    def test_changed_path(self):
+        rid=self.prepared();self.app.approve(rid);self.app.destinations['movies']='/other'
+        with self.assertRaises(PluginError):self.app.submit(rid)
+    def test_path_traversal(self):
+        with self.assertRaises(PluginError):self.app.prepare('123','../../tmp')
+        cfg=dict(self.cfg,destinations={'bad':'/downloads/../etc'})
+        with self.assertRaises(PluginError):App(cfg,MT(),self.q)
+    def test_hash(self):
+        self.assertEqual(torrent_hash(TORRENT),hashlib.sha1(TORRENT[7:-1]).hexdigest())
+        for bad in [b'<html>',b'd4:infodee',TORRENT+b'x',b'd4:info999999:x']:
+            with self.assertRaises(PluginError):torrent_hash(bad)
+    def test_bad_endpoint(self):
+        for path in ['//evil/x','https://evil','/../x','/x?key=abc']:
+            with self.assertRaises(PluginError):endpoint('https://example.com',path)
+        with self.assertRaises(PluginError):base_url('https://user:password@example.com')
+    @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
+    def test_search_metadata_sanitized(self):
+        http=FakeHTTP([json.dumps({'code':'0','data':{'data':[{'id':1,'name':'sample','downloadUrl':'SECRET'}]}}).encode()])
+        mt=MTeam({'base_url':'https://example.com'},http)
+        result=mt.search('sample')
+        self.assertNotIn('SECRET',json.dumps(result))
+        body=json.loads(http.calls[0][0][3]);self.assertEqual(body['keyword'],'sample')
+    @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
+    def test_download_url_restricted(self):
+        for url in ['http://localhost/a','https://evil.com/a','https://example.com:444/a']:
+            mt=MTeam({'base_url':'https://example.com','download_hosts':['example.com']},FakeHTTP([json.dumps({'code':0,'data':url}).encode()]))
+            with self.assertRaises(PluginError):mt.torrent('1')
+    def test_qbit_version_fields(self):
+        for ver,field in [(b'v4.6.7','paused'),(b'v5.1.0','stopped')]:
+            http=FakeHTTP([ver,b'Ok.']);qb=QBit({'base_url':'http://qb:8080'},http)
+            qb.add(TORRENT,'/downloads','hermes',True)
+            body=http.calls[1][0][3]
+            self.assertIn(('name="'+field+'"').encode(),body)
+            self.assertIn(b'name="autoTMM"\r\n\r\nfalse',body)
+    def test_native_registration(self):
+        root=Path(__file__).resolve().parents[1]
+        spec=importlib.util.spec_from_file_location('pt_plugin',root/'__init__.py',submodule_search_locations=[str(root)])
+        plugin=importlib.util.module_from_spec(spec);sys.modules['pt_plugin']=plugin;spec.loader.exec_module(plugin)
+        class Context:
+            def __init__(self):self.tools=[]
+            def register_tool(self,**kwargs):self.tools.append(kwargs)
+            def register_skill(self,**kwargs):self.skill=kwargs
+        ctx=Context();plugin.register(ctx)
+        self.assertEqual(len(ctx.tools),6)
+        self.assertTrue(ctx.skill["path"].is_file())
+        self.assertTrue(all(callable(x['handler']) for x in ctx.tools))
+
+if __name__=='__main__':unittest.main()

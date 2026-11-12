@@ -1,0 +1,11 @@
+{
+  "name": "mteam-qbit",
+  "label": "M-Team 下载",
+  "description": "馒头与 qBittorrent 配置、连接测试及保存目录",
+  "icon": "Download",
+  "version": "0.2.0",
+  "tab": {"path": "/mteam-qbit", "position": "after:skills"},
+  "slots": [],
+  "entry": "dist/index.js",
+  "api": "plugin_api.py"
+}
