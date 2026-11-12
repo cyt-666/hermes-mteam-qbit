@@ -39,7 +39,7 @@
     }
     async function test(target) {
       setBusy(true);setMessage('正在测试已保存的配置，请稍候…');
-      try {const result=await sdk.fetchJSON(base+'/test/'+target,{method:'POST'});setMessage(result.message);}
+      try {const result=await sdk.fetchJSON(base+'/test/'+target,{method:'POST'});setMessage((result.ok ? '' : '测试失败 ['+(result.code||'probe_failed')+']：')+result.message);}
       catch (_) {setMessage('连接测试失败或频率过高。检查已保存的地址与凭据，等待 15 秒再试；没有提交下载。');}
       finally {setBusy(false);}
     }

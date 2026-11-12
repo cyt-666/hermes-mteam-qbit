@@ -13,7 +13,7 @@ Hermes 原生插件：搜索馒头资源、查看信息，并将用户明确选�
 - 注意：普通 Web Dashboard **不会自动渲染通用 config_schema**；Desktop 的表单不能替代 Web 验证。因此本插件实现了专用 Web 页面，不依赖该自动表单。
 - SDK 上游文档仍标 SPIKE：**不保证所有旧版或未来版本兼容**。如果使用别的版本，应核实后再部署。
 - 支持 qBittorrent 4.x / 5.x，分别使用 paused / stopped 字段。暂只支持 v1/混合种子，纯 v2 不支持；种子大小上限 8 MiB。
-- 已通过：31 项离线 Python 单元/API 测试，JS 语法检查，以及 React + JSDOM 的页面渲染/默认路径编辑/保存请求/密码清空/测试按钮模拟检查。测试覆盖注册、配置校验/脱敏、profile 路径、凭据白名单、API 路由、请求确认、提交查重、超时防重投、qBit 版本参数。
+- 已通过：32 项离线 Python 单元/API 测试，JS 语法检查，以及 React + JSDOM 的页面渲染/默认路径编辑/保存请求/密码清空/测试按钮模拟检查。测试覆盖注册、配置校验/脱敏、profile 路径、凭据白名单、API 路由、请求确认、提交查重、超时防重投、qBit 版本参数。
 - **尚未完成：用户的真实 Hermes 全进程加载、馒头账户和真实 qBittorrent 端到端联调。**当前执行环境阻止 Chromium 启动，因此未完成真实浏览器视觉验收。源码契约核实、JSDOM 和本地 mock 测试不能替代部署验收。
 
 ## 功能
@@ -210,3 +210,9 @@ cd tests/ui && npm install --ignore-scripts && npm test
 4. 同一已登录 Dashboard 浏览器的开发者工具 Network 中，检查 `/api/dashboard/plugins` 返回是否包含 `mteam-qbit`（使用页面本身请求，保持当前 Profile 与 URL 前缀）。没有：发现/启用/版本问题；有但 JS 失败：检查其 `/dashboard-plugins/.../mteam-qbit/dist/index.js` 请求；页面出现但读取配置失败：检查 `/api/plugins/mteam-qbit/settings` 与 Dashboard 日志。401 是登录，404 可能是未启用/未挂载/版本不兼容，不能只凭状态码断定。
 
 不要在排查截图或日志里公开密钥、Cookie、Authorization。当前未完成用户实际容器联调，不能把“刷新一下”当成已确认修复。
+
+### 连接测试失败的诊断
+
+测试不会下载。插件显示的错误码用于区分 `credential_missing`（当前 Profile 凭据未读到）、`network`（连接/超时）、`redirect`（拒绝跨地址转发凭据）、`invalid_json`（可能返回网页/防护页）、`http_401`/`http_403`/`http_429` 等 HTTP 状态、`mteam_rejected`（站点业务拒绝/未知结构）、`search_schema`（搜索响应结构不兼容）。这些分类不等于已确认根因，例如 403 不能直接断定 Key 错了。
+
+`api.m-team.cc` 与 `api.m-team.io` 都曾列在站点官方 API 域名公告中。应核对自己站点当前公布的 API 地址及容器可达性，不要把 `kp.m-team.cc` 网页首页直接当 API，也不要随意把凭据发送到未经确认的替代域名。仅提交错误码和非敏感配置帮助排查，不发送 Key、Cookie 或完整响应正文。公告参考：https://t.me/s/M_Team?before=340 。

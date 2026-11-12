@@ -5,8 +5,8 @@ const dom=new JSDOM('<div id="root"></div>',{url:'https://hermes.test',runScript
 global.window=dom.window;global.document=dom.window.document;global.navigator=dom.window.navigator;global.IS_REACT_ACT_ENVIRONMENT=true;
 const React=require('react'),ReactDOM=require('react-dom/client');const {act}=React;const {Simulate}=require('react-dom/test-utils');
 const values={mteam_url:'https://api.m-team.cc',qbit_url:'http://qbittorrent:8080',download_hosts:['api.m-team.cc'],default_save_path:'/downloads',category:'hermes',start_paused:false,approval_ttl_seconds:900,search_path:'/api/torrent/search',detail_path:'/api/torrent/detail',download_path:'/api/torrent/genDlToken',detail_encoding:'form',detail_origin:'',search_mode:'normal'};
-const calls=[];let component;
-window.__HERMES_PLUGIN_SDK__={React,hooks:React,fetchJSON:async(url,opts)=>{calls.push({url,opts});if(opts?.method==='PUT')return {ok:true};if(opts?.method==='POST')return {ok:true,message:'TEST_SUCCESS_NO_DOWNLOAD'};return {settings:values,secrets_set:{mteam_api_key:true,qbit_username:true,qbit_password:true}};}};
+const calls=[];let component;let failedProbe=false;
+window.__HERMES_PLUGIN_SDK__={React,hooks:React,fetchJSON:async(url,opts)=>{calls.push({url,opts});if(opts?.method==='PUT')return {ok:true};if(opts?.method==='POST')return failedProbe?{ok:false,code:'http_403',message:'安全诊断'}:{ok:true,message:'TEST_SUCCESS_NO_DOWNLOAD'};return {settings:values,secrets_set:{mteam_api_key:true,qbit_username:true,qbit_password:true}};}};
 window.__HERMES_PLUGINS__={register:(name,c)=>{assert.equal(name,'mteam-qbit');component=c;}};
 window.eval(fs.readFileSync(require('path').resolve(__dirname,'../../dashboard/dist/index.js'),'utf8'));
 (async()=>{
@@ -24,6 +24,10 @@ assert.equal(saved.settings.default_save_path,'/media/custom');assert.equal(save
 assert.equal(document.querySelector('input[type=password]').value,'');
 await act(async()=>Simulate.click(button('测试 qBittorrent')));
 assert(document.body.textContent.includes('TEST_SUCCESS_NO_DOWNLOAD'));
+failedProbe=true;
+await act(async()=>Simulate.click(button('测试馒头')));
+assert(document.body.textContent.includes('http_403'));
+assert(document.body.textContent.includes('安全诊断'));
 await act(async()=>root.unmount());
 console.log('PASS: DOM render, empty secret fields, default directory, save payload, secret reset, read-only test button');
 })().catch(e=>{console.error(e);process.exitCode=1;});

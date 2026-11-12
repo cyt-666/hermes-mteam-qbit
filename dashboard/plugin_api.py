@@ -79,6 +79,33 @@ def probe(target):
     raise core.PluginError('未知测试目标。')
 
 
+def probe_error(exc):
+    # Only locally defined messages/codes reach the page. Never echo upstream bodies,
+    # exception strings, URLs, or arbitrary PluginError text.
+    text = str(exc)
+    messages = {
+        'Required credential environment variable is unset.': ('credential_missing', '当前 Profile 未读取到必需凭据。请先保存，再测试；核对 API Key 或 qBit 用户名/密码显示已设置。'),
+        'Service connection failed or timed out; credentials/URL omitted.': ('network', '连接失败或超时。检查 Hermes 容器的 DNS、网络、代理与服务地址；不是已确认 API Key 错误。'),
+        'Service returned invalid JSON.': ('invalid_json', '服务未返回 JSON，可能填了网页地址、代理/防护页或网关错误；请核对 API 地址。'),
+        'Redirect refused; verify configured service hostname.': ('redirect', '服务要求跳转，插件未转发凭据。请使用站点公布的当前 API 地址。'),
+        'M-Team rejected request or response schema changed; body omitted.': ('mteam_rejected', '馒头返回业务拒绝或未知结构。可能是 Key、账户权限、限流或接口变化；需要核对站点 API 设置。'),
+        'Unexpected M-Team search schema.': ('search_schema', '认证请求返回成功，但搜索结果结构不兼容。请报告此错误码。'),
+        '请等待 15 秒再测试同一服务。': ('rate_limit', '请等待 15 秒再测试同一服务。'),
+    }
+    if text in messages:
+        code, message = messages[text]
+    elif __import__('re').fullmatch(r'Service HTTP error [1-5][0-9]{2} \(URL/body omitted\).', text):
+        status = text.split()[3]
+        code, message = 'http_' + status, '服务返回 HTTP ' + status + '。401/403 常涉及认证或访问防护；404 检查 API 地址与路径；429 请稍后再试。未返回响应正文。'
+    else:
+        code, message = 'probe_failed', '连接测试失败，敏感详情已隐藏。请核对已保存配置、当前 Profile 与 Hermes 版本。'
+    return {'ok': False, 'code': code, 'message': message}
+
+
 @router.post('/test/{target}')
 def test_connection(target: str):
-    return guarded(probe, target)
+    try:
+        return probe(target)
+    except Exception as exc:
+        return probe_error(exc)
+

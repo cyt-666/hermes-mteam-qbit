@@ -30,6 +30,16 @@ class DashboardTests(unittest.TestCase):
         with patch.object(api.settings,'read_settings',side_effect=RuntimeError('DO_NOT_ECHO')):
             res=self.client.get('/api/plugins/mteam-qbit/settings')
             self.assertEqual(res.status_code,500);self.assertNotIn('DO_NOT_ECHO',res.text)
+    def test_probe_errors_visible_but_sanitized(self):
+        cases=[(api.core.PluginError('Service HTTP error 403 (URL/body omitted).'),'http_403'),
+               (api.core.PluginError('Required credential environment variable is unset.'),'credential_missing'),
+               (RuntimeError('https://secret.test/?key=DO_NOT_ECHO'),'probe_failed')]
+        for error,code in cases:
+            with patch.object(api,'probe',side_effect=error):
+                res=self.client.post('/api/plugins/mteam-qbit/test/mteam')
+                self.assertEqual(res.json()['code'],code)
+                self.assertFalse(res.json()['ok'])
+                self.assertNotIn('DO_NOT_ECHO',res.text)
     def test_probe_route_no_download(self):
         with patch.object(api,'probe',return_value={'ok':True,'message':'test only'}) as probe:
             res=self.client.post('/api/plugins/mteam-qbit/test/qbit')
