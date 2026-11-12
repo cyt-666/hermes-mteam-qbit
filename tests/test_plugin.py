@@ -110,7 +110,7 @@ class Tests(unittest.TestCase):
     @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
     def test_response_categories_and_no_raw_data(self):
         cases=[([], 'response_shape',None),({'message':'DO_NOT_ECHO'},'response_code_missing',None),
-               ({'code':'403','message':'DO_NOT_ECHO'},'business_rejected','403'),
+               ({'code':'403','message':'token=DO_NOT_ECHO'},'business_rejected','403'),
                ({'code':'DO_NOT_ECHO'},'business_rejected',None),({'code':{'secret':'DO_NOT_ECHO'}},'business_rejected',None)]
         for data,category,numeric in cases:
             http=FakeHTTP([json.dumps(data).encode()]);http.last_status=200

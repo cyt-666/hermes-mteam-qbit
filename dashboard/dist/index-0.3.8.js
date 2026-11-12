@@ -6,7 +6,7 @@
   const R = sdk.React, h = R.createElement;
   const {useState, useEffect} = sdk.hooks;
   const base = '/api/plugins/mteam-qbit';
-  const FRONTEND_VERSION = '0.3.7';
+  const FRONTEND_VERSION = '0.3.8';
   const inputStyle = {padding:'9px',border:'1px solid #8886',borderRadius:'6px',background:'transparent',color:'inherit',width:'100%'};
   const btnStyle = {padding:'9px 15px',border:'1px solid #8888',borderRadius:'6px',marginRight:'8px',cursor:'pointer'};
   function Page() {
@@ -55,6 +55,7 @@
           }
           const b=result.response_diagnostics;
           if(b) details+=' 上游 HTTP：'+(Number.isInteger(b.http_status)&&b.http_status>=100&&b.http_status<=599?b.http_status:'未知')+'；业务码类型：'+(['unavailable','missing','boolean','number','string','null','other'].includes(b.code_type)?b.code_type:'未知')+'；数字业务码：'+(typeof b.numeric_code==='string'&&/^[0-9]{1,6}$/.test(b.numeric_code)?b.numeric_code:'未显示')+'。';
+          if(b) details+=' 上游 message：'+(typeof b.upstream_message==='string'?b.upstream_message.slice(0,301):'未提供文本 message')+'。';
           const d=result.http_diagnostics;
           if(d) {
             details+=' 响应类型：'+(['json','html','other'].includes(d.response_type)?d.response_type:'未知')+'；Cloudflare 标记：'+(d.cloudflare_header_present===true||d.cloudflare_server===true?'有':'未见')+'；挑战响应标记：'+(d.challenge_header===true?'有':'未见')+'。标记不能单独确认拒绝原因。';

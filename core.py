@@ -32,12 +32,47 @@ class ServiceHTTPError(PluginError):
 
 
 
+def sanitized_upstream_message(result, known_secrets=()):
+    """Bounded textual diagnostic, with fail-closed credential assignments."""
+    import html
+    value = result.get('message') if isinstance(result.get('message'), str) else result.get('msg')
+    if not isinstance(value, str) or not value:
+        return None
+    if len(value) > 8192 or re.search(r'<(?:!doctype|html|script)\b', value, re.I):
+        return '[message omitted: oversized or HTML response]'
+    # Normalize before redacting so tag/control removal cannot reassemble secrets.
+    for _ in range(2):
+        value = html.unescape(value)
+        value = re.sub(r'<[^>]*>', '', value)
+        value = ''.join(c for c in value if ord(c) >= 32 and ord(c) != 127)
+    # Credential assignments can contain quoted whitespace/arbitrary syntax.
+    # Do not attempt partial extraction: suppress the entire message.
+    if re.search(r"(?i)(?:api[-_ ]?key|passkey|password|passwd|token|authorization|cookie|secret|sid|密钥|密码)[\"']?\s*[=:：]", value):
+        return '[message omitted: credential-bearing diagnostic]'
+    variants = []
+    for secret_value in known_secrets:
+        if isinstance(secret_value, str) and secret_value:
+            variants.extend((secret_value, urllib.parse.quote(secret_value, safe=''), urllib.parse.quote_plus(secret_value)))
+    for variant in variants:
+        value = value.replace(variant, '[REDACTED]')
+    value = re.sub(r'https?://[^\s<>"\']+', '[URL REDACTED]', value, flags=re.I)
+    value = re.sub(r'[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}', '[EMAIL REDACTED]', value, flags=re.I)
+    if re.search(r'(?i)bearer\s+', value):
+        return '[message omitted: credential-bearing diagnostic]'
+    value = re.sub(r'[A-Za-z0-9_+/=-]{20,}', '[OPAQUE VALUE REDACTED]', value)
+    # Final guard after all transformations, before truncating.
+    for variant in variants:
+        value = value.replace(variant, '[REDACTED]')
+    return value[:300] + ('…' if len(value) > 300 else '')
+
+
 class MTeamResponseError(PluginError):
-    def __init__(self, category, status, code=None):
+    def __init__(self, category, status, code=None, upstream_message=None):
         super().__init__(category)
         typ = 'unavailable' if category == 'response_shape' else 'missing' if category == 'response_code_missing' else 'boolean' if isinstance(code, bool) else 'number' if isinstance(code, (int, float)) else 'string' if isinstance(code, str) else 'null' if code is None else 'other'
         numeric = str(code) if type(code) is int or isinstance(code, str) else ''
         self.response_diagnostics = {'http_status': status if type(status) is int and 100 <= status <= 599 else None,
+                                     'upstream_message': upstream_message,
                                      'code_type': typ, 'numeric_code': numeric if re.fullmatch(r'[0-9]{1,6}', numeric) else None}
 
 
@@ -173,7 +208,7 @@ class MTeam:
         if 'code' not in result:
             raise MTeamResponseError('response_code_missing', status)
         if str(result['code']) not in [str(c) for c in self.cfg.get('success_codes', [0])]:
-            raise MTeamResponseError('business_rejected', status, result['code'])
+            raise MTeamResponseError('business_rejected', status, result['code'], sanitized_upstream_message(result, (headers['x-api-key'],)))
         return result.get('data')
 
     def test_connection(self):

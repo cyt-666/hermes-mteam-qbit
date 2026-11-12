@@ -20,7 +20,7 @@ class DashboardTests(unittest.TestCase):
         with patch.object(api.settings,'read_settings',return_value=api.settings.DEFAULTS),patch.object(api.settings,'secret_presence',return_value={'mteam_api_key':True}):
             res=self.client.get('/api/plugins/mteam-qbit/settings')
             self.assertEqual(res.status_code,200)
-            self.assertEqual(res.json()['backend_version'],'0.3.7')
+            self.assertEqual(res.json()['backend_version'],'0.3.8')
             self.assertTrue(res.json()['secrets_set']['mteam_api_key'])
             self.assertNotIn('value',res.json()['secrets_set'])
     def test_save_route_delegates(self):
@@ -72,7 +72,41 @@ class DashboardTests(unittest.TestCase):
         with patch.object(api,'probe',side_effect=err),patch.object(api,'credential_diagnostics',return_value=None):
             data=self.client.post('/api/plugins/mteam-qbit/test/mteam').json()
             self.assertEqual(data['code'],'business_rejected')
-            self.assertEqual(data['response_diagnostics'],{'http_status':200,'code_type':'string','numeric_code':'123'})
+            self.assertEqual(data['response_diagnostics'],{'http_status':200,'code_type':'string','numeric_code':'123','upstream_message':None})
+    def test_upstream_message_real_http_wrapper_through_route(self):
+        from io import BytesIO
+        secret='SECRET_CURRENT_KEY'
+        payload={'code':'403','message':'API rejected '+secret+' https://host.test/?token=abc user@example.com', 'data':{'email':'PRIVATE_PROFILE'}}
+        class Response(BytesIO):
+            status=200
+            def __enter__(self):return self
+            def __exit__(self,*args):self.close()
+        http=api.core.HTTP()
+        http.opener.open=lambda *a,**k:Response(json.dumps(payload).encode())
+        mt=api.core.MTeam({'base_url':'https://example.com'},http)
+        with patch.object(api.core,'secret',return_value=secret),patch.object(api,'probe',side_effect=lambda target:mt.test_connection()),patch.object(api,'credential_diagnostics',return_value=None):
+            res=self.client.post('/api/plugins/mteam-qbit/test/mteam')
+        self.assertEqual(res.json()['response_diagnostics']['http_status'],200)
+        message=res.json()['response_diagnostics']['upstream_message']
+        self.assertTrue('API rejected' in message or 'message omitted' in message)
+        for value in [secret,'host.test','user@example.com','PRIVATE_PROFILE']:
+            self.assertNotIn(value,res.text)
+    def test_message_sanitization_bounds_and_objects(self):
+        sanitize=api.core.sanitized_upstream_message
+        self.assertEqual(sanitize({'message':'Invalid API key'}),'Invalid API key')
+        self.assertIsNone(sanitize({'message':{'account':'PRIVATE'}}))
+        self.assertNotIn('PRIVATE',sanitize({'message':'<script>PRIVATE</script>'}))
+        self.assertLessEqual(len(sanitize({'msg':'正常错误'*200})),301)
+        self.assertNotIn('abc',sanitize({'message':'token=abc'}))
+        self.assertNotIn('abc',sanitize({'message':'Bearer abc'}))
+    def test_quoted_and_reassembled_secret_regressions(self):
+        sanitize=api.core.sanitized_upstream_message
+        for msg in ['password="short secret words"', 'token: "abc xyz"', '"password": "short secret words"']:
+            value=sanitize({'message':msg})
+            self.assertNotIn('words',value);self.assertNotIn('xyz',value)
+        key='0123456789abcdef0123456789abcdef'
+        for msg in [key[:16]+'<b></b>'+key[16:],key[:16]+'\n'+key[16:],key[:16]+'&lt;b&gt;&lt;/b&gt;'+key[16:]]:
+            self.assertNotIn(key,sanitize({'message':msg},(key,)))
     def test_probe_route_no_download(self):
         with patch.object(api,'probe',return_value={'ok':True,'message':'test only'}) as probe:
             res=self.client.post('/api/plugins/mteam-qbit/test/qbit')
