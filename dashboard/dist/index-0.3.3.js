@@ -6,12 +6,13 @@
   const R = sdk.React, h = R.createElement;
   const {useState, useEffect} = sdk.hooks;
   const base = '/api/plugins/mteam-qbit';
-  const FRONTEND_VERSION = '0.3.2';
+  const FRONTEND_VERSION = '0.3.3';
   const inputStyle = {padding:'9px',border:'1px solid #8886',borderRadius:'6px',background:'transparent',color:'inherit',width:'100%'};
   const btnStyle = {padding:'9px 15px',border:'1px solid #8888',borderRadius:'6px',marginRight:'8px',cursor:'pointer'};
   function Page() {
     const [backendVersion,setBackendVersion] = useState('未知'), [v,setV] = useState(null), [hosts,setHosts] = useState('');
     const [secrets,setSecrets] = useState({mteam_api_key:'',qbit_username:'',qbit_password:''});
+    const versionMismatch = backendVersion !== FRONTEND_VERSION;
     const [present,setPresent] = useState({}), [busy,setBusy] = useState(false), [message,setMessage] = useState('正在读取配置…');
     async function reload() {
       try {
@@ -29,7 +30,7 @@
         h('small',null,help));
     }
     async function save(e) {
-      e.preventDefault(); if (busy) return;
+      e.preventDefault(); if (busy || versionMismatch) return;
       setBusy(true);setMessage('正在保存…');
       try {
         await sdk.fetchJSON(base+'/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings:{...v,download_hosts:hosts.split(/[\n,]/).map(x=>x.trim()).filter(Boolean)},secrets})});
@@ -39,6 +40,7 @@
       finally {setBusy(false);}
     }
     async function test(target) {
+      if(versionMismatch) return;
       setBusy(true);setMessage('正在测试已保存的配置，请稍候…');
       try {
         const result=await sdk.fetchJSON(base+'/test/'+target,{method:'POST'});
@@ -61,6 +63,11 @@
     return h('div',{style:{padding:'24px',maxWidth:'900px',margin:'auto'}},
       h('h1',{style:{fontSize:'24px',fontWeight:700}},'M-Team + qBittorrent'),
       h('p',null,'前端 v'+FRONTEND_VERSION+' · 后端 '+backendVersion),
+      versionMismatch && h('div',{role:'alert',style:{border:'2px solid #d99232',padding:'14px',marginBottom:'16px'}},
+        h('strong',null,'前后端版本不一致，已暂停保存和连接测试。'),
+        h('p',null,'更新插件文件不会自动替换已经加载的 Python 后端。请重新加载提供本页 API 的 Dashboard 进程；不是只重启 Gateway。能独立管理 Dashboard 时无需重启整个容器。不要反复更新插件或改密钥。'),
+        h('p',null,'若已重载仍不一致，请检查是否更新了另一 Profile、插件目录或服务实例。'),
+        h('button',{type:'button',style:btnStyle,disabled:busy,onClick:reload},'重新检查后端版本')),
       h('p',null,'全部配置在本页完成，无需编辑文件、Compose 环境变量或手工安装 Skill。请仅在可信管理员页面填写凭据。'),
       h('p',{style:{opacity:.75}},'适配 Hermes v0.23.1 / Dashboard SDK 1.1.0。首版未完成真实账号端到端联调。'),
       h('form',{onSubmit:save},
@@ -81,9 +88,9 @@
           field('search_path','搜索 API 路径','通常无需修改。'),field('detail_path','详情 API 路径','通常无需修改。'),field('download_path','下载令牌 API 路径','通常无需修改。'),
           h('label',null,'详情请求编码 ',h('select',{value:v.detail_encoding,disabled:busy,onChange:e=>change('detail_encoding',e.target.value)},h('option',{value:'form'},'form'),h('option',{value:'json'},'json'))),
           field('detail_origin','详情 origin（可留空）','站点需要时填写 DETAIL。'),field('search_mode','搜索模式','默认 normal。'),field('approval_ttl_seconds','准备请求有效期（秒）','60–86400 秒；默认 900。','number')),
-        h('div',{style:{marginTop:'24px'}},h('button',{type:'submit',style:btnStyle,disabled:busy},busy?'处理中…':'保存配置'),
-          h('button',{type:'button',style:btnStyle,disabled:busy,onClick:()=>test('mteam')},'测试馒头'),
-          h('button',{type:'button',style:btnStyle,disabled:busy,onClick:()=>test('qbit')},'测试 qBittorrent'))),
+        h('div',{style:{marginTop:'24px'}},h('button',{type:'submit',style:btnStyle,disabled:busy||versionMismatch},busy?'处理中…':'保存配置'),
+          h('button',{type:'button',style:btnStyle,disabled:busy||versionMismatch,onClick:()=>test('mteam')},'测试馒头'),
+          h('button',{type:'button',style:btnStyle,disabled:busy||versionMismatch,onClick:()=>test('qbit')},'测试 qBittorrent'))),
       h('p',null,'测试仅使用已保存的配置：馒头执行一次搜索；qBit 登录并读取版本。不获取种子、不添加任务，也不能验证保存目录写权限。'),
       h('div',{role:'status','aria-live':'polite',style:{padding:'12px',border:'1px solid #8885',borderRadius:'6px',marginTop:'16px'}},message||'等待操作。'),
       h('p',{style:{opacity:.75}},'Skill 随插件启用自动注册为 mteam-qbit:mteam-qbit。只搜索不会下载；下载需用户明确选择资源和保存目录。')

@@ -1,4 +1,4 @@
-# M-Team + qBittorrent · 0.3.2
+# M-Team + qBittorrent · 0.3.3
 
 Hermes 原生插件
 
@@ -56,7 +56,7 @@ hermes-data/
     ├── dashboard/
     │   ├── manifest.json
     │   ├── plugin_api.py
-    │   └── dist/index.js
+    │   └── dist/index-0.3.3.js
     ├── skills/mteam-qbit/SKILL.md
     ├── tests/
     └── README.md
@@ -169,7 +169,7 @@ mteam-qbit:mteam-qbit
 
 ```sh
 python -m unittest discover -s tests -v
-node --check dashboard/dist/index.js
+node --check dashboard/dist/index-0.3.3.js
 # 可选：DOM 模拟测试（开发者环境，非用户安装步骤）
 cd tests/ui && npm install --ignore-scripts && npm test
 ```
@@ -206,8 +206,8 @@ cd tests/ui && npm install --ignore-scripts && npm test
 若没有该入口：
 1. 确认运行的是支持 Dashboard 扩展的 Hermes v0.23.1 兼容构建，并且当前管理 Profile 启用了 `mteam-qbit`。工具集可见并不证明 Dashboard 已加载。
 2. 重启 **提供网页的 Dashboard 进程/容器**，而非只重启 Telegram Gateway；浏览器强制刷新。若两者在不同容器，Dashboard 也必须能读到插件文件。
-3. 核对实际插件目录下同时存在 `dashboard/manifest.json`、`dashboard/dist/index.js`、`dashboard/plugin_api.py`；不要只复制 Python 文件或多嵌套一层目录。使用进程 launch home / 默认 Hermes root 下的 `plugins`；不要只把文件放在任意聊天工作目录。
-4. 同一已登录 Dashboard 浏览器的开发者工具 Network 中，检查 `/api/dashboard/plugins` 返回是否包含 `mteam-qbit`（使用页面本身请求，保持当前 Profile 与 URL 前缀）。没有：发现/启用/版本问题；有但 JS 失败：检查其 `/dashboard-plugins/.../mteam-qbit/dist/index.js` 请求；页面出现但读取配置失败：检查 `/api/plugins/mteam-qbit/settings` 与 Dashboard 日志。401 是登录，404 可能是未启用/未挂载/版本不兼容，不能只凭状态码断定。
+3. 核对实际插件目录下同时存在 `dashboard/manifest.json`、`dashboard/dist/index-0.3.3.js`、`dashboard/plugin_api.py`；不要只复制 Python 文件或多嵌套一层目录。使用进程 launch home / 默认 Hermes root 下的 `plugins`；不要只把文件放在任意聊天工作目录。
+4. 同一已登录 Dashboard 浏览器的开发者工具 Network 中，检查 `/api/dashboard/plugins` 返回是否包含 `mteam-qbit`（使用页面本身请求，保持当前 Profile 与 URL 前缀）。没有：发现/启用/版本问题；有但 JS 失败：检查其 `/dashboard-plugins/.../mteam-qbit/dist/index-0.3.3.js` 请求；页面出现但读取配置失败：检查 `/api/plugins/mteam-qbit/settings` 与 Dashboard 日志。401 是登录，404 可能是未启用/未挂载/版本不兼容，不能只凭状态码断定。
 
 不要在排查截图或日志里公开密钥、Cookie、Authorization。当前未完成用户实际容器联调，不能把“刷新一下”当成已确认修复。
 
@@ -230,3 +230,18 @@ cd tests/ui && npm install --ignore-scripts && npm test
 - 修正 0.3.1 的遗漏：路由、鉴权、代理或响应解析失败仍会落入旧统一提示。现在独立显示 Dashboard HTTP 状态或网络/非 JSON 失败，明确它不是已确认的馒头响应状态。
 - 页面显示前端版本与后端报告版本；后端未报告可能仍是旧进程。部署后重启 Dashboard 并强刷，预期前后端均为 0.3.2。
 - 不展示异常 message/body/url；测试覆盖旧后端、401/403/404、代理错误、网络和非 JSON 返回。仍未查明用户实际连接故障，也未真实下载。
+
+## 0.3.3：避免新旧代码混用
+
+- 前端入口使用版本化文件名，避免宿主仅按固定 URL 判断“已加载”而继续运行旧 JS。它解决前端资产更新，不会重载 Python 后端。
+- 页面检查前后端版本；不一致时显示明确警告，暂停保存和连接测试。可点击“重新检查后端版本”只读确认，不会重试下载或修改凭据。
+- **当前已在内存的旧后端仍需重载一次**。Hermes v0.23.1 默认 in_process 模式不会替换已挂载 API 路由。关开插件、重新下载仓库或刷新浏览器不能保证更换 Python 函数。
+
+### 可靠更新流程
+
+1. 用 Hermes 原有插件更新入口更新已安装的 `mteam-qbit`，查看更新结果。被固定 revision、缺少来源元数据或 git 冲突拒绝时，不要当成成功；手动解压安装需按原方式替换文件。更新不会自动清空本插件存于 profile 的配置/状态。
+2. 在实际 Dashboard 容器中执行只读的 `hermes dashboard --status`，确认提供网页的进程。若使用进程管理器，按原部署配置仅重启该 Dashboard 服务；不能凭空套用某个 supervisor 服务名。若 Dashboard 是容器主进程，单独停止可能导致容器退出，此时重启该容器通常更可靠。不要无差别 kill 或执行 `hermes dashboard --stop`，它不是插件热重载命令。
+3. 刷新页面并核对前后端同版。只重启 Telegram Gateway 不够。若不同版，先核对 Dashboard 实际 home/挂载/当前 Profile、多个实例以及插件磁盘版本，不要反复更新或替换 Key。
+4. 同版后保存配置并测试一次，读取错误码。旧版仍可在浏览器 Network 的 `test/mteam` Response 查看脱敏 `detail`，不必为了获取错误立即重启。
+
+长期方案：把 Dashboard 作为可独立管理的服务/进程，插件更新后仅重载它；宿主将来提供正式 API 路由热重载后再集成。当前不通过修改宿主路由表或注入运行中 Python 绕过生命周期，也不承诺每次后端升级都无需进程重载。
