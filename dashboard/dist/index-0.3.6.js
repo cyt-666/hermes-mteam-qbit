@@ -6,7 +6,7 @@
   const R = sdk.React, h = R.createElement;
   const {useState, useEffect} = sdk.hooks;
   const base = '/api/plugins/mteam-qbit';
-  const FRONTEND_VERSION = '0.3.5';
+  const FRONTEND_VERSION = '0.3.6';
   const inputStyle = {padding:'9px',border:'1px solid #8886',borderRadius:'6px',background:'transparent',color:'inherit',width:'100%'};
   const btnStyle = {padding:'9px 15px',border:'1px solid #8888',borderRadius:'6px',marginRight:'8px',cursor:'pointer'};
   function Page() {
@@ -83,6 +83,7 @@
       h('form',{onSubmit:save},
         h('h2',null,'连接与凭据'),
         field('mteam_url','馒头 API 地址','API Key 会发往此地址，只接受 HTTPS。'),
+        field('mteam_user_agent','馒头 User-Agent','默认 MTeamQBit/1.0。若站点要求可填写自己的兼容值；不会自动更换代理或绕过防护。'),
         field('qbit_url','qBittorrent WebUI 地址','同网络可用 http://qbittorrent:8080；否则用 NAS 内网 IP + 映射端口，不要填 localhost。'),
         ...[['mteam_api_key','馒头 API Key'],['qbit_username','qBittorrent 用户名'],['qbit_password','qBittorrent 密码']].map(([key,label])=>
           h('label',{key,style:{display:'block',marginBottom:'16px'}},h('div',{style:{fontWeight:600}},label+(present[key]?'（已设置，留空保留）':'（尚未设置）')),
@@ -101,7 +102,7 @@
         h('div',{style:{marginTop:'24px'}},h('button',{type:'submit',style:btnStyle,disabled:busy||versionMismatch},busy?'处理中…':'保存配置'),
           h('button',{type:'button',style:btnStyle,disabled:busy||versionMismatch,onClick:()=>test('mteam')},'测试馒头'),
           h('button',{type:'button',style:btnStyle,disabled:busy||versionMismatch,onClick:()=>test('qbit')},'测试 qBittorrent'))),
-      h('p',null,'测试仅使用已保存的配置：馒头执行一次搜索；qBit 登录并读取版本。不获取种子、不添加任务，也不能验证保存目录写权限。'),
+      h('p',null,'测试仅使用已保存的配置：馒头调用账户连接接口（不返回账户资料、不验证搜索）；qBit 登录并读取版本。不获取种子、不添加任务，也不能验证保存目录写权限。'),
       h('div',{role:'status','aria-live':'polite',style:{padding:'12px',border:'1px solid #8885',borderRadius:'6px',marginTop:'16px'}},message||'等待操作。'),
       h('p',{style:{opacity:.75}},'Skill 随插件启用自动注册为 mteam-qbit:mteam-qbit。只搜索不会下载；下载需用户明确选择资源和保存目录。')
     );

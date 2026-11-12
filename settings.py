@@ -11,7 +11,7 @@ from .core import PluginError, base_url, endpoint, save_path, configured_default
 
 SECRET_FIELDS = {'mteam_api_key': 'MTEAM_API_KEY', 'qbit_username': 'QBIT_USERNAME', 'qbit_password': 'QBIT_PASSWORD'}
 DEFAULTS = {
-    'mteam_url': 'https://api.m-team.cc', 'qbit_url': 'http://qbittorrent:8080',
+    'mteam_url': 'https://api.m-team.cc', 'mteam_user_agent': 'MTeamQBit/1.0', 'qbit_url': 'http://qbittorrent:8080',
     'download_hosts': ['api.m-team.cc'], 'default_save_path': '/downloads',
     'category': 'hermes', 'start_paused': False, 'approval_ttl_seconds': 900,
     'search_path': '/api/torrent/search', 'detail_path': '/api/torrent/detail',
@@ -32,6 +32,8 @@ def validate(values):
     v = {**DEFAULTS, **values}
     v['mteam_url'] = base_url(v['mteam_url'], https=True)
     v['qbit_url'] = base_url(v['qbit_url'])
+    if not isinstance(v['mteam_user_agent'], str) or not 1 <= len(v['mteam_user_agent']) <= 256 or any(ord(c) < 32 or ord(c) > 126 for c in v['mteam_user_agent']):
+        raise PluginError('User-Agent 需为 1–256 位可打印 ASCII 字符。')
     for k in ('search_path', 'detail_path', 'download_path'):
         endpoint(v['mteam_url'], v[k])
     if v['detail_encoding'] not in ('form', 'json'):
@@ -51,7 +53,7 @@ def validate(values):
 def to_config(values, path):
     v = validate(values)
     return {
-        'mteam': {'base_url': v['mteam_url'], 'api_key_env': 'MTEAM_API_KEY', 'download_hosts': v['download_hosts'],
+        'mteam': {'base_url': v['mteam_url'], 'user_agent': v['mteam_user_agent'], 'api_key_env': 'MTEAM_API_KEY', 'download_hosts': v['download_hosts'],
                   'search_path': v['search_path'], 'detail_path': v['detail_path'], 'download_path': v['download_path'],
                   'detail_encoding': v['detail_encoding'], 'detail_extra': {'origin': v['detail_origin']} if v['detail_origin'] else {},
                   'search_mode': v['search_mode']},
@@ -64,6 +66,7 @@ def to_config(values, path):
 def public_values(cfg):
     m, q = cfg.get('mteam', {}), cfg.get('qbittorrent', {})
     result = dict(DEFAULTS)
+    result['mteam_user_agent'] = m.get('user_agent', DEFAULTS['mteam_user_agent'])
     result.update(mteam_url=m.get('base_url', DEFAULTS['mteam_url']), qbit_url=q.get('base_url', DEFAULTS['qbit_url']),
                   download_hosts=m.get('download_hosts', DEFAULTS['download_hosts']),
                   detail_encoding=m.get('detail_encoding', 'form'), detail_origin=m.get('detail_extra', {}).get('origin', ''),

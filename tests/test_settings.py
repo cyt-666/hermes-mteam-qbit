@@ -63,6 +63,12 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(values['default_save_path'],'/tv')
         self.assertNotIn('destinations',values)
         self.assertNotIn('destinations',settings.to_config(values,self.home/'config.json'))
+    def test_user_agent_validation_and_mapping(self):
+        for ua in ['', 'x\nsecret', '非ASCII']:
+            with self.assertRaises(PluginError):settings.validate({'mteam_user_agent':ua})
+        cfg=settings.to_config({'mteam_user_agent':'Configured/1'},self.home/'config.json')
+        self.assertEqual(cfg['mteam']['user_agent'],'Configured/1')
+        self.assertEqual(settings.public_values(cfg)['mteam_user_agent'],'Configured/1')
     def test_secret_scope_fail_closed(self):
         from pt_web_test.core import secret
         with patch('agent.secret_scope.get_secret',side_effect=RuntimeError('scope required')):

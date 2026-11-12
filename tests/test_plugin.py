@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from core import App, MTeam, QBit, PluginError, torrent_hash, endpoint, base_url
+from core import HTTP, ServiceHTTPError, App, MTeam, QBit, PluginError, torrent_hash, endpoint, base_url
 
 TORRENT = b'd4:infod6:lengthi1e4:name1:x6:pieces20:abcdefghijklmnopqrstee'
 class MT:
@@ -97,6 +97,26 @@ class Tests(unittest.TestCase):
         result=mt.search('sample')
         self.assertNotIn('SECRET',json.dumps(result))
         body=json.loads(http.calls[0][0][3]);self.assertEqual(body['keyword'],'sample')
+    @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
+    def test_profile_connection_no_body_or_data_exposure(self):
+        http=FakeHTTP([json.dumps({'code':0,'data':{'email':'DO_NOT_ECHO'}}).encode()])
+        mt=MTeam({'base_url':'https://example.com'},http)
+        self.assertIs(mt.test_connection(),True)
+        args=http.calls[0][0]
+        self.assertEqual(args[0],'POST')
+        self.assertEqual(args[1],'https://example.com/api/member/profile')
+        self.assertIsNone(args[3])
+        self.assertNotIn('Accept',args[2])
+    @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
+    def test_user_agent_only_request_change(self):
+        for cfg,ua in [({},'MTeamQBit/1.0'),({'user_agent':'CustomUA/1'},'CustomUA/1')]:
+            http=FakeHTTP([json.dumps({'code':0,'data':{'data':[]}}).encode()])
+            mt=MTeam({'base_url':'https://example.com',**cfg},http)
+            mt.search('hermes-connection-test',limit=1)
+            args=http.calls[0][0]
+            self.assertEqual(args[1],'https://example.com/api/torrent/search')
+            self.assertEqual(args[2],{'x-api-key':'test-key','Content-Type':'application/json','User-Agent':ua})
+            self.assertEqual(json.loads(args[3]),{'mode':'normal','keyword':'hermes-connection-test','pageNumber':1,'pageSize':1})
     @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
     def test_download_url_restricted(self):
         for url in ['http://localhost/a','https://evil.com/a','https://example.com:444/a']:

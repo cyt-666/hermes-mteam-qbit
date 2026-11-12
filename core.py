@@ -151,12 +151,20 @@ class MTeam:
 
     def api(self, path, body, form=False):
         headers = {'x-api-key': secret(self.cfg.get('api_key_env', 'MTEAM_API_KEY')),
-                   'Content-Type': 'application/x-www-form-urlencoded' if form else 'application/json'}
-        encoded = urllib.parse.urlencode(body).encode() if form else json.dumps(body).encode()
+                   'Content-Type': 'application/x-www-form-urlencoded' if form else 'application/json',
+                   'User-Agent': self.cfg.get('user_agent', 'MTeamQBit/1.0')}
+        encoded = None if body is None else urllib.parse.urlencode(body).encode() if form else json.dumps(body).encode()
         result = decode_json(self.http.request('POST', endpoint(self.base, path), headers, encoded))
         if not isinstance(result, dict) or str(result.get('code')) not in [str(c) for c in self.cfg.get('success_codes', [0])]:
             raise PluginError('M-Team rejected request or response schema changed; body omitted.')
         return result.get('data')
+
+    def test_connection(self):
+        data = self.api('/api/member/profile', None)
+        if not isinstance(data, dict):
+            raise PluginError('Unexpected M-Team profile schema.')
+        # Never return profile contents to the UI/model.
+        return True
 
     @staticmethod
     def public(item):
