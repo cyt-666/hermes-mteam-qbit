@@ -230,16 +230,44 @@ class MTeam:
                 'seeders': status.get('seeders'), 'leechers': status.get('leechers'),
                 'discount': status.get('discount'), 'created_at': item.get('createdDate')}
 
-    def search(self, query, page=1, limit=20):
+    def search(self, query, page=1, limit=20, category='all', category_ids=None):
         if not isinstance(query, str) or not query.strip() or len(query) > 200:
             raise PluginError('Search query must contain 1–200 characters.')
-        if not isinstance(page, int) or not isinstance(limit, int) or not 1 <= page <= 1000 or not 1 <= limit <= 50:
-            raise PluginError('Invalid pagination.')
+        if type(page) is not int or type(limit) is not int or not 1 <= page <= 1000 or not 1 <= limit <= 50:
+            raise PluginError('Pagination requires page 1–1000 and limit 1–50.')
+        presets = {
+            'all': [],
+            'movie': ['401','419','420','421','439','405','404'],
+            'tv': ['403','402','435','438','404','405'],
+            'music': ['434','406'],
+        }
+        if not isinstance(category, str) or category not in presets:
+            raise PluginError('Category must be all, movie, tv or music; use category_ids for site-specific IDs.')
+        categories = presets[category]
+        if category_ids is not None:
+            if (not isinstance(category_ids, list) or not 1 <= len(category_ids) <= 30
+                    or any(not isinstance(x, str) or not re.fullmatch(r'[0-9]{1,10}', x) for x in category_ids)):
+                raise PluginError('category_ids requires 1–30 numeric string IDs.')
+            categories = list(dict.fromkeys(category_ids))
         data = self.api(self.cfg.get('search_path', '/api/torrent/search'),
-                        {'mode': self.cfg.get('search_mode', 'normal'), 'keyword': query, 'pageNumber': page, 'pageSize': limit})
+                        {'mode': self.cfg.get('search_mode', 'normal'), 'keyword': query,
+                         'categories': categories, 'pageNumber': page, 'pageSize': limit})
         if not isinstance(data, dict) or not isinstance(data.get('data'), list):
             raise PluginError('Unexpected M-Team search schema.')
-        return {'items': [self.public(x) for x in data['data']], 'page': page, 'total': data.get('total')}
+        def count(value):
+            if type(value) is int and value >= 0: return value
+            if isinstance(value, str) and re.fullmatch(r'[0-9]{1,12}', value): return int(value)
+            return None
+        reported_page = count(data.get('pageNumber'))
+        current = reported_page if reported_page and reported_page <= 1000 else page
+        total, total_pages = count(data.get('total')), count(data.get('totalPages'))
+        # Do not fabricate an end-of-list from a short page when server metadata is absent.
+        has_more = current < total_pages if total_pages is not None else current * limit < total if total is not None else None
+        return {'items': [self.public(x) for x in data['data'] if isinstance(x, dict)],
+                'query': query, 'category': category if category_ids is None else 'custom', 'category_ids': categories,
+                'requested_page': page, 'page': current, 'limit': limit, 'total': total, 'total_pages': total_pages,
+                'has_more': has_more, 'next_page': current + 1 if has_more is True and current < 1000 else None,
+                'page_limit_reached': current >= 1000, 'previous_page': current - 1 if current > 1 else None}
 
     def details(self, rid):
         body = dict(self.cfg.get('detail_extra', {}))

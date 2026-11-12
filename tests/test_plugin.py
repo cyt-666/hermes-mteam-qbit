@@ -86,6 +86,26 @@ class Tests(unittest.TestCase):
         self.assertEqual(torrent_hash(TORRENT),hashlib.sha1(TORRENT[7:-1]).hexdigest())
         for bad in [b'<html>',b'd4:infodee',TORRENT+b'x',b'd4:info999999:x']:
             with self.assertRaises(PluginError):torrent_hash(bad)
+    @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
+    def test_category_filter_and_pagination(self):
+        http=FakeHTTP([json.dumps({'code':0,'data':{'data':[],'pageNumber':'2','totalPages':'4','total':'70'}}).encode()])
+        result=MTeam({'base_url':'https://example.com'},http).search('sample',page=2,limit=20,category='tv')
+        self.assertEqual(json.loads(http.calls[0][0][3])['categories'],['403','402','435','438','404','405'])
+        self.assertTrue(result['has_more']);self.assertEqual(result['next_page'],3);self.assertEqual(result['previous_page'],1)
+    @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
+    def test_custom_categories_and_unknown_end(self):
+        http=FakeHTTP([b'{"code":0,"data":{"data":[]}}'])
+        result=MTeam({'base_url':'https://example.com'},http).search('sample',category='movie',category_ids=['434','434'])
+        self.assertEqual(result['category_ids'],['434']);self.assertEqual(result['category'],'custom')
+        self.assertIsNone(result['has_more']);self.assertIsNone(result['next_page'])
+    @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
+    def test_pagination_end_and_invalid_inputs(self):
+        http=FakeHTTP([b'{"code":0,"data":{"data":[],"total":20}}'])
+        result=MTeam({'base_url':'https://example.com'},http).search('sample')
+        self.assertFalse(result['has_more']);self.assertIsNone(result['next_page'])
+        mt=MTeam({'base_url':'https://example.com'},FakeHTTP([]))
+        for kw in [{'page':True},{'page':0},{'limit':51},{'category':'invented'},{'category_ids':[]},{'category_ids':['x']},{'category_ids':[401]}]:
+            with self.assertRaises(PluginError):mt.search('sample',**kw)
     def test_bad_endpoint(self):
         for path in ['//evil/x','https://evil','/../x','/x?key=abc']:
             with self.assertRaises(PluginError):endpoint('https://example.com',path)
@@ -135,7 +155,7 @@ class Tests(unittest.TestCase):
             args=http.calls[0][0]
             self.assertEqual(args[1],'https://example.com/api/torrent/search')
             self.assertEqual(args[2],{'x-api-key':'test-key','Content-Type':'application/json','User-Agent':ua})
-            self.assertEqual(json.loads(args[3]),{'mode':'normal','keyword':'hermes-connection-test','pageNumber':1,'pageSize':1})
+            self.assertEqual(json.loads(args[3]),{'mode':'normal','keyword':'hermes-connection-test','categories':[],'pageNumber':1,'pageSize':1})
     @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
     def test_download_url_restricted(self):
         for url in ['http://localhost/a','https://evil.com/a','https://example.com:444/a']:

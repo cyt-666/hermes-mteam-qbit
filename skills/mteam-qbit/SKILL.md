@@ -17,3 +17,8 @@ description: Search authorized M-Team resources and submit reviewed requests to 
 - Do not change gateway permissions, start/resume/delete tasks, or install dependencies automatically.
 
 Prepared requests freeze the resolved path even if the default later changes. Prepare again to change it. Existing same-hash tasks are not moved or restarted; report their actual paths. Old v0.2 prepared requests must be prepared anew.
+
+## Search filters and pages
+- pt_search accepts query, page (1-based, default 1), limit (1–50, default 20), category (all/movie/tv/music), optional category_ids (numeric strings overriding category). Use movie for 电影, tv for 电视剧, music for 音乐; broad site presets can overlap and are not exact media-type guarantees. Never invent category IDs.
+- For “下一页/继续翻页”, retain the same query, category/category_ids and limit; use next_page when returned. If has_more=false stop; if null, say the server did not provide reliable pagination totals and only request another page when the user asks. Never present missing metadata as no more results.
+- For new keywords or changed filters, reset page to 1 unless the user specifies a page. Display current page, available total/total_pages, and stable resource IDs, not raw signed URLs. Do not automatically crawl every page or fetch torrents. Search pagination never grants download consent.

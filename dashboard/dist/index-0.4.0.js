@@ -6,7 +6,7 @@
   const R = sdk.React, h = R.createElement;
   const {useState, useEffect} = sdk.hooks;
   const base = '/api/plugins/mteam-qbit';
-  const FRONTEND_VERSION = '0.3.9';
+  const FRONTEND_VERSION = '0.4.0';
   const inputStyle = {padding:'9px',border:'1px solid #8886',borderRadius:'6px',background:'transparent',color:'inherit',width:'100%'};
   const btnStyle = {padding:'9px 15px',border:'1px solid #8888',borderRadius:'6px',marginRight:'8px',cursor:'pointer'};
   function Page() {
