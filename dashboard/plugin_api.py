@@ -14,14 +14,45 @@ from fastapi import APIRouter, HTTPException, Request
 # Hermes imports plugin_api.py in an isolated module namespace, not as our package.
 # Give relative imports a unique package without altering sys.path.
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE = '_mteam_qbit_dashboard_' + __import__('hashlib').sha256(str(ROOT).encode()).hexdigest()[:12]
-if PACKAGE not in sys.modules:
-    spec = importlib.util.spec_from_file_location(PACKAGE, ROOT / '__init__.py', submodule_search_locations=[str(ROOT)])
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[PACKAGE] = module
-    spec.loader.exec_module(module)
-settings = __import__(PACKAGE + '.settings', fromlist=['settings'])
-core = __import__(PACKAGE + '.core', fromlist=['core'])
+# Namespace by source snapshot, not just installation path. Compile the snapshot
+# directly: timestamp-based .pyc may otherwise reuse same-size rapid edits.
+import hashlib
+import types
+_BOOTSTRAP = sys.modules.setdefault('_mteam_qbit_bootstrap_lock', types.ModuleType('_mteam_qbit_bootstrap_lock'))
+_BOOTSTRAP.__dict__.setdefault('lock', threading.RLock())
+_SOURCE_NAMES = ('__init__.py', 'core.py', 'settings.py')
+_sources = {name: (ROOT / name).read_bytes() for name in _SOURCE_NAMES}
+_digest = hashlib.sha256()
+for _name, _source in _sources.items():
+    _digest.update(_name.encode() + b'\0' + _source + b'\0')
+BUSINESS_BUILD = _digest.hexdigest()
+PACKAGE = '_mteam_qbit_dashboard_' + hashlib.sha256(str(ROOT).encode()).hexdigest()[:12] + '_' + BUSINESS_BUILD
+with _BOOTSTRAP.lock:
+    if PACKAGE not in sys.modules:
+        package = types.ModuleType(PACKAGE)
+        package.__path__ = [str(ROOT)]
+        package.__package__ = PACKAGE
+        package.__file__ = str(ROOT / '__init__.py')
+        sys.modules[PACKAGE] = package
+        try:
+            for name in ('core', 'settings'):
+                child = types.ModuleType(PACKAGE + '.' + name)
+                child.__package__ = PACKAGE
+                child.__file__ = str(ROOT / (name + '.py'))
+                sys.modules[child.__name__] = child
+                exec(compile(_sources[name + '.py'], child.__file__, 'exec'), child.__dict__)
+                setattr(package, name, child)
+            exec(compile(_sources['__init__.py'], package.__file__, 'exec'), package.__dict__)
+            package.__business_build__ = BUSINESS_BUILD
+        except BaseException:
+            # Only remove this incomplete generation. Existing handlers retain
+            # their old generation; no reload/pop of shared live modules.
+            for key in (PACKAGE + '.settings', PACKAGE + '.core', PACKAGE):
+                sys.modules.pop(key, None)
+            raise
+    package = sys.modules[PACKAGE]
+    core, settings = package.core, package.settings
+    BUSINESS_BUILD = package.__business_build__
 router = APIRouter()
 _probe_lock = threading.Lock()
 _probe_time = {}
@@ -40,7 +71,7 @@ def guarded(fn, *args):
 @router.get('/settings')
 def get_settings():
     return guarded(lambda: {'settings': settings.read_settings(), 'secrets_set': settings.secret_presence(),
-                            'backend_version': '0.3.3', 'compatibility': 'Hermes v0.23.1 Dashboard SDK 1.1.0; live deployment not certified'})
+                            'backend_version': '0.3.4', 'business_build': BUSINESS_BUILD, 'compatibility': 'Hermes v0.23.1 Dashboard SDK 1.1.0; live deployment not certified'})
 
 
 @router.put('/settings')

@@ -6,18 +6,18 @@
   const R = sdk.React, h = R.createElement;
   const {useState, useEffect} = sdk.hooks;
   const base = '/api/plugins/mteam-qbit';
-  const FRONTEND_VERSION = '0.3.3';
+  const FRONTEND_VERSION = '0.3.4';
   const inputStyle = {padding:'9px',border:'1px solid #8886',borderRadius:'6px',background:'transparent',color:'inherit',width:'100%'};
   const btnStyle = {padding:'9px 15px',border:'1px solid #8888',borderRadius:'6px',marginRight:'8px',cursor:'pointer'};
   function Page() {
-    const [backendVersion,setBackendVersion] = useState('未知'), [v,setV] = useState(null), [hosts,setHosts] = useState('');
+    const [businessBuild,setBusinessBuild] = useState('未报告'), [backendVersion,setBackendVersion] = useState('未知'), [v,setV] = useState(null), [hosts,setHosts] = useState('');
     const [secrets,setSecrets] = useState({mteam_api_key:'',qbit_username:'',qbit_password:''});
     const versionMismatch = backendVersion !== FRONTEND_VERSION;
     const [present,setPresent] = useState({}), [busy,setBusy] = useState(false), [message,setMessage] = useState('正在读取配置…');
     async function reload() {
       try {
         const d = await sdk.fetchJSON(base+'/settings');
-        setV(d.settings); setBackendVersion(typeof d.backend_version==='string' && /^\d+\.\d+\.\d+$/.test(d.backend_version)?d.backend_version:'旧版或未报告');
+        setBusinessBuild(typeof d.business_build==='string' && /^[a-f0-9]{64}$/.test(d.business_build)?d.business_build.slice(0,12):'未报告'); setV(d.settings); setBackendVersion(typeof d.backend_version==='string' && /^\d+\.\d+\.\d+$/.test(d.backend_version)?d.backend_version:'旧版或未报告');
         setHosts(d.settings.download_hosts.join('\n')); setPresent(d.secrets_set); setMessage('');
       } catch (_) { setMessage('读取失败。请确认插件已启用、当前 Profile 正确，且 Hermes 为 v0.23.1 兼容版本。'); }
     }
@@ -62,7 +62,7 @@
     if (!v) return h('div',{style:{padding:'24px'}},message,h('button',{style:btnStyle,onClick:reload},'重新读取'));
     return h('div',{style:{padding:'24px',maxWidth:'900px',margin:'auto'}},
       h('h1',{style:{fontSize:'24px',fontWeight:700}},'M-Team + qBittorrent'),
-      h('p',null,'前端 v'+FRONTEND_VERSION+' · 后端 '+backendVersion),
+      h('p',null,'前端 v'+FRONTEND_VERSION+' · 后端 '+backendVersion+' · 业务构建 '+businessBuild),
       versionMismatch && h('div',{role:'alert',style:{border:'2px solid #d99232',padding:'14px',marginBottom:'16px'}},
         h('strong',null,'前后端版本不一致，已暂停保存和连接测试。'),
         h('p',null,'更新插件文件不会自动替换已经加载的 Python 后端。请重新加载提供本页 API 的 Dashboard 进程；不是只重启 Gateway。能独立管理 Dashboard 时无需重启整个容器。不要反复更新插件或改密钥。'),
