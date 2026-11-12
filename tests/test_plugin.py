@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from core import HTTP, ServiceHTTPError, App, MTeam, QBit, PluginError, torrent_hash, endpoint, base_url
+from core import MTeamResponseError, HTTP, ServiceHTTPError, App, MTeam, QBit, PluginError, torrent_hash, endpoint, base_url
 
 TORRENT = b'd4:infod6:lengthi1e4:name1:x6:pieces20:abcdefghijklmnopqrstee'
 class MT:
@@ -107,6 +107,23 @@ class Tests(unittest.TestCase):
         self.assertEqual(args[1],'https://example.com/api/member/profile')
         self.assertIsNone(args[3])
         self.assertNotIn('Accept',args[2])
+    @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
+    def test_response_categories_and_no_raw_data(self):
+        cases=[([], 'response_shape',None),({'message':'DO_NOT_ECHO'},'response_code_missing',None),
+               ({'code':'403','message':'DO_NOT_ECHO'},'business_rejected','403'),
+               ({'code':'DO_NOT_ECHO'},'business_rejected',None),({'code':{'secret':'DO_NOT_ECHO'}},'business_rejected',None)]
+        for data,category,numeric in cases:
+            http=FakeHTTP([json.dumps(data).encode()]);http.last_status=200
+            with self.assertRaises(MTeamResponseError) as ctx:MTeam({'base_url':'https://example.com'},http).test_connection()
+            self.assertEqual(str(ctx.exception),category)
+            self.assertEqual(ctx.exception.response_diagnostics['http_status'],200)
+            self.assertEqual(ctx.exception.response_diagnostics['numeric_code'],numeric)
+            self.assertNotIn('DO_NOT_ECHO',json.dumps(ctx.exception.response_diagnostics))
+    @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
+    def test_profile_empty_data_rejected(self):
+        for data in [{},None,[],False]:
+            http=FakeHTTP([json.dumps({'code':0,'data':data}).encode()])
+            with self.assertRaisesRegex(PluginError,'profile schema'):MTeam({'base_url':'https://example.com'},http).test_connection()
     @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
     def test_user_agent_only_request_change(self):
         for cfg,ua in [({},'MTeamQBit/1.0'),({'user_agent':'CustomUA/1'},'CustomUA/1')]:

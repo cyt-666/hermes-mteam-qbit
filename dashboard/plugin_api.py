@@ -71,7 +71,7 @@ def guarded(fn, *args):
 @router.get('/settings')
 def get_settings():
     return guarded(lambda: {'settings': settings.read_settings(), 'secrets_set': settings.secret_presence(),
-                            'backend_version': '0.3.6', 'business_build': BUSINESS_BUILD, 'compatibility': 'Hermes v0.23.1 Dashboard SDK 1.1.0; live deployment not certified'})
+                            'backend_version': '0.3.7', 'business_build': BUSINESS_BUILD, 'compatibility': 'Hermes v0.23.1 Dashboard SDK 1.1.0; live deployment not certified'})
 
 
 @router.put('/settings')
@@ -115,6 +115,10 @@ def probe_error(exc):
     # exception strings, URLs, or arbitrary PluginError text.
     text = str(exc)
     messages = {
+        'response_shape': ('response_shape', '馒头返回 JSON，但顶层不是预期对象。未返回原始内容。'),
+        'response_code_missing': ('response_code_missing', '馒头返回对象缺少业务 code 字段，不能判断认证成功。'),
+        'business_rejected': ('business_rejected', '馒头返回非成功业务码；请结合受限数字码核对站点，不返回原始说明或账户资料。'),
+        'Unexpected M-Team profile schema.': ('profile_schema', '业务码成功，但账户数据为空或结构不兼容，不能确认连接测试成功。'),
         'Required credential environment variable is unset.': ('credential_missing', '当前 Profile 未读取到必需凭据。请先保存，再测试；核对 API Key 或 qBit 用户名/密码显示已设置。'),
         'Service connection failed or timed out; credentials/URL omitted.': ('network', '连接失败或超时。检查 Hermes 容器的 DNS、网络、代理与服务地址；不是已确认 API Key 错误。'),
         'Service returned invalid JSON.': ('invalid_json', '服务未返回 JSON，可能填了网页地址、代理/防护页或网关错误；请核对 API 地址。'),
@@ -155,6 +159,8 @@ def test_connection(target: str):
         result = probe(target)
     except Exception as exc:
         result = probe_error(exc)
+        if isinstance(exc, core.MTeamResponseError):
+            result['response_diagnostics'] = exc.response_diagnostics
         if isinstance(exc, core.ServiceHTTPError):
             result['http_diagnostics'] = exc.http_diagnostics
     if diagnostics is not None:

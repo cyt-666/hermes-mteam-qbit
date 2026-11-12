@@ -20,7 +20,7 @@ class DashboardTests(unittest.TestCase):
         with patch.object(api.settings,'read_settings',return_value=api.settings.DEFAULTS),patch.object(api.settings,'secret_presence',return_value={'mteam_api_key':True}):
             res=self.client.get('/api/plugins/mteam-qbit/settings')
             self.assertEqual(res.status_code,200)
-            self.assertEqual(res.json()['backend_version'],'0.3.6')
+            self.assertEqual(res.json()['backend_version'],'0.3.7')
             self.assertTrue(res.json()['secrets_set']['mteam_api_key'])
             self.assertNotIn('value',res.json()['secrets_set'])
     def test_save_route_delegates(self):
@@ -67,6 +67,12 @@ class DashboardTests(unittest.TestCase):
             result=self.client.post('/api/plugins/mteam-qbit/test/mteam').json()
             self.assertNotIn('http_diagnostics',result)
             self.assertNotIn('DO_NOT_ECHO',json.dumps(result))
+    def test_business_failure_classification(self):
+        err=api.core.MTeamResponseError('business_rejected',200,'123')
+        with patch.object(api,'probe',side_effect=err),patch.object(api,'credential_diagnostics',return_value=None):
+            data=self.client.post('/api/plugins/mteam-qbit/test/mteam').json()
+            self.assertEqual(data['code'],'business_rejected')
+            self.assertEqual(data['response_diagnostics'],{'http_status':200,'code_type':'string','numeric_code':'123'})
     def test_probe_route_no_download(self):
         with patch.object(api,'probe',return_value={'ok':True,'message':'test only'}) as probe:
             res=self.client.post('/api/plugins/mteam-qbit/test/qbit')

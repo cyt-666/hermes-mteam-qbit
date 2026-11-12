@@ -32,6 +32,15 @@ class ServiceHTTPError(PluginError):
 
 
 
+class MTeamResponseError(PluginError):
+    def __init__(self, category, status, code=None):
+        super().__init__(category)
+        typ = 'unavailable' if category == 'response_shape' else 'missing' if category == 'response_code_missing' else 'boolean' if isinstance(code, bool) else 'number' if isinstance(code, (int, float)) else 'string' if isinstance(code, str) else 'null' if code is None else 'other'
+        numeric = str(code) if type(code) is int or isinstance(code, str) else ''
+        self.response_diagnostics = {'http_status': status if type(status) is int and 100 <= status <= 599 else None,
+                                     'code_type': typ, 'numeric_code': numeric if re.fullmatch(r'[0-9]{1,6}', numeric) else None}
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise PluginError('Redirect refused; verify configured service hostname.')
@@ -39,12 +48,15 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 class HTTP:
     def __init__(self):
+        self.last_status = None
         self.opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 
     def request(self, method, url, headers=None, data=None, limit=4 * 1024 * 1024):
+        self.last_status = None
         req = urllib.request.Request(url, headers=headers or {}, data=data, method=method)
         try:
             with self.opener.open(req, timeout=25) as response:
+                self.last_status = response.status
                 result = response.read(limit + 1)
                 if len(result) > limit:
                     raise PluginError('Response exceeds size limit.')
@@ -155,13 +167,18 @@ class MTeam:
                    'User-Agent': self.cfg.get('user_agent', 'MTeamQBit/1.0')}
         encoded = None if body is None else urllib.parse.urlencode(body).encode() if form else json.dumps(body).encode()
         result = decode_json(self.http.request('POST', endpoint(self.base, path), headers, encoded))
-        if not isinstance(result, dict) or str(result.get('code')) not in [str(c) for c in self.cfg.get('success_codes', [0])]:
-            raise PluginError('M-Team rejected request or response schema changed; body omitted.')
+        status = getattr(self.http, 'last_status', None)
+        if not isinstance(result, dict):
+            raise MTeamResponseError('response_shape', status)
+        if 'code' not in result:
+            raise MTeamResponseError('response_code_missing', status)
+        if str(result['code']) not in [str(c) for c in self.cfg.get('success_codes', [0])]:
+            raise MTeamResponseError('business_rejected', status, result['code'])
         return result.get('data')
 
     def test_connection(self):
         data = self.api('/api/member/profile', None)
-        if not isinstance(data, dict):
+        if not isinstance(data, dict) or not data:
             raise PluginError('Unexpected M-Team profile schema.')
         # Never return profile contents to the UI/model.
         return True

@@ -6,7 +6,7 @@
   const R = sdk.React, h = R.createElement;
   const {useState, useEffect} = sdk.hooks;
   const base = '/api/plugins/mteam-qbit';
-  const FRONTEND_VERSION = '0.3.6';
+  const FRONTEND_VERSION = '0.3.7';
   const inputStyle = {padding:'9px',border:'1px solid #8886',borderRadius:'6px',background:'transparent',color:'inherit',width:'100%'};
   const btnStyle = {padding:'9px 15px',border:'1px solid #8888',borderRadius:'6px',marginRight:'8px',cursor:'pointer'};
   function Page() {
@@ -53,6 +53,8 @@
             const bool=x=>x===true?'是':x===false?'否':'未知';
             details+=' 当前生效凭据存在：'+bool(c.effective_present)+'；当前 Profile 保存值存在：'+bool(c.profile_saved_present)+'；两者一致：'+bool(c.effective_matches_saved)+'。';
           }
+          const b=result.response_diagnostics;
+          if(b) details+=' 上游 HTTP：'+(Number.isInteger(b.http_status)&&b.http_status>=100&&b.http_status<=599?b.http_status:'未知')+'；业务码类型：'+(['unavailable','missing','boolean','number','string','null','other'].includes(b.code_type)?b.code_type:'未知')+'；数字业务码：'+(typeof b.numeric_code==='string'&&/^[0-9]{1,6}$/.test(b.numeric_code)?b.numeric_code:'未显示')+'。';
           const d=result.http_diagnostics;
           if(d) {
             details+=' 响应类型：'+(['json','html','other'].includes(d.response_type)?d.response_type:'未知')+'；Cloudflare 标记：'+(d.cloudflare_header_present===true||d.cloudflare_server===true?'有':'未见')+'；挑战响应标记：'+(d.challenge_header===true?'有':'未见')+'。标记不能单独确认拒绝原因。';
