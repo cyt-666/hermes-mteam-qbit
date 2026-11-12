@@ -6,16 +6,17 @@
   const R = sdk.React, h = R.createElement;
   const {useState, useEffect} = sdk.hooks;
   const base = '/api/plugins/mteam-qbit';
+  const FRONTEND_VERSION = '0.3.2';
   const inputStyle = {padding:'9px',border:'1px solid #8886',borderRadius:'6px',background:'transparent',color:'inherit',width:'100%'};
   const btnStyle = {padding:'9px 15px',border:'1px solid #8888',borderRadius:'6px',marginRight:'8px',cursor:'pointer'};
   function Page() {
-    const [v,setV] = useState(null), [hosts,setHosts] = useState('');
+    const [backendVersion,setBackendVersion] = useState('未知'), [v,setV] = useState(null), [hosts,setHosts] = useState('');
     const [secrets,setSecrets] = useState({mteam_api_key:'',qbit_username:'',qbit_password:''});
     const [present,setPresent] = useState({}), [busy,setBusy] = useState(false), [message,setMessage] = useState('正在读取配置…');
     async function reload() {
       try {
         const d = await sdk.fetchJSON(base+'/settings');
-        setV(d.settings);
+        setV(d.settings); setBackendVersion(typeof d.backend_version==='string' && /^\d+\.\d+\.\d+$/.test(d.backend_version)?d.backend_version:'旧版或未报告');
         setHosts(d.settings.download_hosts.join('\n')); setPresent(d.secrets_set); setMessage('');
       } catch (_) { setMessage('读取失败。请确认插件已启用、当前 Profile 正确，且 Hermes 为 v0.23.1 兼容版本。'); }
     }
@@ -39,13 +40,27 @@
     }
     async function test(target) {
       setBusy(true);setMessage('正在测试已保存的配置，请稍候…');
-      try {const result=await sdk.fetchJSON(base+'/test/'+target,{method:'POST'});setMessage((result.ok ? '' : '测试失败 ['+(result.code||'probe_failed')+']：')+result.message);}
-      catch (_) {setMessage('连接测试失败或频率过高。检查已保存的地址与凭据，等待 15 秒再试；没有提交下载。');}
+      try {
+        const result=await sdk.fetchJSON(base+'/test/'+target,{method:'POST'});
+        if (!result || typeof result.ok!=='boolean' || typeof result.message!=='string') {
+          setMessage('Dashboard 返回非预期响应；可能为旧后端或代理页面。请重启提供网页的进程并核对前后端版本。未确认馒头状态。');
+        } else {
+          setMessage((result.ok ? '' : '测试失败 ['+(/^[a-z_0-9]+$/.test(result.code||'')?result.code:'probe_failed')+']：')+result.message);
+        }
+      } catch (error) {
+        // ApiError.status is numeric. Never display error.message/body/url or arbitrary response content.
+        const status=error && Number.isInteger(error.status) && error.status>=0 && error.status<=599 ? error.status : null;
+        const hints={401:'网页登录已过期，请重新登录。',403:'Dashboard 拒绝访问，请检查权限。',404:'插件测试路由不存在或未启用，请检查当前 Profile 并重启 Dashboard。',400:'可能仍在运行旧后端；请核对前后端版本并重启 Dashboard。',429:'Dashboard 请求过于频繁，请稍后再试。',502:'反向代理无法连接 Dashboard。',503:'Dashboard 暂不可用。',504:'代理等待 Dashboard 超时。'};
+        if(status===0) setMessage('Dashboard 网络请求失败，未确认是否到达插件；检查网页与 Hermes 服务的连接。');
+        else if(status!==null) setMessage('Dashboard 请求失败：HTTP '+status+'。'+(hints[status]||'检查 Dashboard 日志与前后端版本。')+'这不是已确认的馒头 HTTP 状态。');
+        else setMessage('Dashboard 响应无法解析或请求失败（可能为非 JSON/旧版接口）。请核对前后端版本及代理。敏感详情未显示。');
+      }
       finally {setBusy(false);}
     }
     if (!v) return h('div',{style:{padding:'24px'}},message,h('button',{style:btnStyle,onClick:reload},'重新读取'));
     return h('div',{style:{padding:'24px',maxWidth:'900px',margin:'auto'}},
       h('h1',{style:{fontSize:'24px',fontWeight:700}},'M-Team + qBittorrent'),
+      h('p',null,'前端 v'+FRONTEND_VERSION+' · 后端 '+backendVersion),
       h('p',null,'全部配置在本页完成，无需编辑文件、Compose 环境变量或手工安装 Skill。请仅在可信管理员页面填写凭据。'),
       h('p',{style:{opacity:.75}},'适配 Hermes v0.23.1 / Dashboard SDK 1.1.0。首版未完成真实账号端到端联调。'),
       h('form',{onSubmit:save},
