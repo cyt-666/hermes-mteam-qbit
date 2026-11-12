@@ -109,6 +109,14 @@ class Tests(unittest.TestCase):
             body=http.calls[1][0][3]
             self.assertIn(('name="'+field+'"').encode(),body)
             self.assertIn(b'name="autoTMM"\r\n\r\nfalse',body)
+    def test_dashboard_manifest_and_assets(self):
+        root=Path(__file__).resolve().parents[1]
+        manifest=json.loads((root/'dashboard/manifest.json').read_text())
+        self.assertEqual(manifest['name'],'mteam-qbit')
+        self.assertIn('version: "'+manifest['version']+'"',(root/'plugin.yaml').read_text())
+        self.assertEqual(manifest['tab']['path'],'/mteam-qbit')
+        for key in ('entry','api'):
+            self.assertTrue((root/'dashboard'/manifest[key]).is_file())
     def test_native_registration(self):
         root=Path(__file__).resolve().parents[1]
         spec=importlib.util.spec_from_file_location('pt_plugin',root/'__init__.py',submodule_search_locations=[str(root)])

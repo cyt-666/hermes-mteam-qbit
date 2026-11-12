@@ -13,7 +13,7 @@ Hermes 原生插件：搜索馒头资源、查看信息，并将用户明确选�
 - 注意：普通 Web Dashboard **不会自动渲染通用 config_schema**；Desktop 的表单不能替代 Web 验证。因此本插件实现了专用 Web 页面，不依赖该自动表单。
 - SDK 上游文档仍标 SPIKE：**不保证所有旧版或未来版本兼容**。如果使用别的版本，应核实后再部署。
 - 支持 qBittorrent 4.x / 5.x，分别使用 paused / stopped 字段。暂只支持 v1/混合种子，纯 v2 不支持；种子大小上限 8 MiB。
-- 已通过：30 项离线 Python 单元/API 测试，JS 语法检查，以及 React + JSDOM 的页面渲染/默认路径编辑/保存请求/密码清空/测试按钮模拟检查。测试覆盖注册、配置校验/脱敏、profile 路径、凭据白名单、API 路由、请求确认、提交查重、超时防重投、qBit 版本参数。
+- 已通过：31 项离线 Python 单元/API 测试，JS 语法检查，以及 React + JSDOM 的页面渲染/默认路径编辑/保存请求/密码清空/测试按钮模拟检查。测试覆盖注册、配置校验/脱敏、profile 路径、凭据白名单、API 路由、请求确认、提交查重、超时防重投、qBit 版本参数。
 - **尚未完成：用户的真实 Hermes 全进程加载、馒头账户和真实 qBittorrent 端到端联调。**当前执行环境阻止 Chromium 启动，因此未完成真实浏览器视觉验收。源码契约核实、JSDOM 和本地 mock 测试不能替代部署验收。
 
 ## 功能
@@ -198,3 +198,15 @@ cd tests/ui && npm install --ignore-scripts && npm test
 - 准备时返回并固定完整路径，提交不再接受修改路径。之后网页默认值变化不会改变已准备请求；想改当前任务目的地需重新准备。已有同 hash 任务只返回其实际路径，不移动、不重启。
 - 从 0.2 升级时，为保持可读取旧配置，网页和工具暂取旧 `destinations` 中第一个目录作为默认（没有旧目录则 `/downloads`）。请在网页核对后保存；保存后仅保留单一 `default_save_path`，不再保留别名映射。旧版本已准备但未提交的请求必须重新准备，避免旧语义混用；已提交任务不受影响。
 - 安装新文件后重启 Hermes 并刷新页面，确保工具 schema 和 Skill 都更新。不涉及实际下载或自动迁移已有文件。
+
+### 找不到 API Key / qBit 配置入口
+
+工具集（toolset）选择弹窗只控制工具启用，不显示本插件设置。关闭弹窗，回到 **Hermes Web Dashboard** 主侧栏的 **M-Team 下载**；也可在 Plugins 插件管理页进入本插件的 Dashboard 页面。此表单不是聊天工具弹窗、Desktop 通用配置表单，也不是任何第三方 WebUI 都会自动支持的页面。
+
+若没有该入口：
+1. 确认运行的是支持 Dashboard 扩展的 Hermes v0.23.1 兼容构建，并且当前管理 Profile 启用了 `mteam-qbit`。工具集可见并不证明 Dashboard 已加载。
+2. 重启 **提供网页的 Dashboard 进程/容器**，而非只重启 Telegram Gateway；浏览器强制刷新。若两者在不同容器，Dashboard 也必须能读到插件文件。
+3. 核对实际插件目录下同时存在 `dashboard/manifest.json`、`dashboard/dist/index.js`、`dashboard/plugin_api.py`；不要只复制 Python 文件或多嵌套一层目录。使用进程 launch home / 默认 Hermes root 下的 `plugins`；不要只把文件放在任意聊天工作目录。
+4. 同一已登录 Dashboard 浏览器的开发者工具 Network 中，检查 `/api/dashboard/plugins` 返回是否包含 `mteam-qbit`（使用页面本身请求，保持当前 Profile 与 URL 前缀）。没有：发现/启用/版本问题；有但 JS 失败：检查其 `/dashboard-plugins/.../mteam-qbit/dist/index.js` 请求；页面出现但读取配置失败：检查 `/api/plugins/mteam-qbit/settings` 与 Dashboard 日志。401 是登录，404 可能是未启用/未挂载/版本不兼容，不能只凭状态码断定。
+
+不要在排查截图或日志里公开密钥、Cookie、Authorization。当前未完成用户实际容器联调，不能把“刷新一下”当成已确认修复。
