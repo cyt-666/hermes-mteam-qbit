@@ -13,32 +13,6 @@ import urllib.request
 from pathlib import Path, PurePosixPath
 
 
-# Public normal-section mappings, not an account-specific live catalog.
-CATEGORY_CATALOG = {
-    '401':'电影SD', '419':'电影HD', '420':'电影DVDiSo', '421':'电影Blu-Ray', '439':'电影Remux',
-    '403':'剧集综艺SD', '402':'剧集综艺HD', '438':'剧集综艺BD', '435':'剧集综艺DVDiSo',
-    '404':'纪录教育', '434':'无损音乐', '406':'演唱MV', '423':'PC游戏', '448':'TV游戏',
-    '405':'动画', '453':'动画BluRay', '407':'体育运动', '427':'教育电子书', '422':'软件',
-    '442':'教育音档', '451':'教育影片', '409':'其他',
-}
-CATEGORY_PRESETS = {
-    'all':[], 'movie':['401','419','420','421','439','405','404'],
-    'tv':['403','402','435','438','404','405'], 'music':['434','406'],
-    'anime':['405','453'], 'documentary':['404'], 'sports':['407'],
-    'games':['423','448'], 'software':['422'], 'books':['427'],
-    'education':['404','427','442','451'], 'other':['409'],
-}
-CATEGORY_ALIASES = {'全部':'all','电影':'movie','剧集':'tv','电视剧':'tv','综艺':'tv','音乐':'music','动漫':'anime',
-                    '纪录片':'documentary','体育':'sports','游戏':'games','软件':'software','电子书':'books','教育':'education','其他':'other'}
-
-
-def category_catalog():
-    return {'scope':'Public normal-section mapping; not a live or complete account catalog.',
-            'source':'https://github.com/Jackett/Jackett/blob/master/src/Jackett.Common/Indexers/Definitions/MTeamTp.cs',
-            'categories':[{'id':key,'name':value} for key,value in CATEGORY_CATALOG.items()],
-            'presets':CATEGORY_PRESETS, 'aliases':CATEGORY_ALIASES}
-
-
 class PluginError(Exception):
     pass
 
@@ -256,6 +230,62 @@ class MTeam:
                 'seeders': status.get('seeders'), 'leechers': status.get('leechers'),
                 'discount': status.get('discount'), 'created_at': item.get('createdDate')}
 
+    def categories(self):
+        """Read server-provided metadata; no fixed category IDs or stale fallback."""
+        data = self.api('/api/torrent/categoryList', None)
+        if not isinstance(data, dict) or not isinstance(data.get('list'), list) or len(data['list']) > 2000:
+            raise PluginError('Unexpected M-Team category schema.')
+        def ident(value):
+            if type(value) is int: value = str(value)
+            return value if isinstance(value, str) and re.fullmatch(r'[0-9]{1,10}', value) else None
+        rows, seen = [], set()
+        for item in data['list']:
+            if not isinstance(item, dict) or not ident(item.get('id')):
+                raise PluginError('Unexpected M-Team category schema.')
+            rid = ident(item['id'])
+            if rid in seen: raise PluginError('Duplicate M-Team category ID.')
+            seen.add(rid)
+            row = {'id':rid, 'parent':ident(item.get('parent'))}
+            for field in ('nameChs', 'nameCht', 'nameEng'):
+                value = item.get(field)
+                if isinstance(value, str) and value.strip() and len(value) <= 200:
+                    row[field] = ''.join(c for c in value if ord(c) >= 32 and ord(c) != 127)
+            if len(row) == 2: raise PluginError('Unexpected M-Team category name.')
+            rows.append(row)
+        groups = {}
+        for key, values in data.items():
+            if key not in ('adult', 'movie', 'music', 'tvshow', 'waterfall'): continue
+            if isinstance(values, list) and values and len(values) <= 2000 and all(ident(x) for x in values):
+                known = list(dict.fromkeys(ident(x) for x in values if ident(x) in seen))
+                if known: groups[key] = known
+        return {'source':'live /api/torrent/categoryList', 'categories':rows, 'groups':groups,
+                'search_mode':self.cfg.get('search_mode','normal'),
+                'scope':'Server-returned catalog for this account; visibility/search results depend on account permissions and configured mode.'}
+
+    def resolve_category(self, category):
+        if not isinstance(category, str):
+            raise PluginError('Category must be a string from pt_categories.')
+        if category in ('all', '全部'): return []
+        if re.fullmatch(r'[0-9]{1,10}', category): return [category]
+        catalog = self.categories()
+        if category in catalog['groups']: return catalog['groups'][category]
+        matches = [row['id'] for row in catalog['categories']
+                   if any(row.get(field) == category for field in ('nameChs','nameCht','nameEng'))]
+        if len(matches) != 1:
+            raise PluginError('Category name unknown or ambiguous. Use pt_categories and explicit category_ids.')
+        # Resolve a parent to its leaf descendants, cycle-safe, from the live tree.
+        children = {}
+        for row in catalog['categories']:
+            children.setdefault(row['parent'], []).append(row['id'])
+        pending, visited, leaves = matches[:], set(), []
+        while pending:
+            rid = pending.pop(0)
+            if rid in visited: raise PluginError('Invalid cyclic M-Team category tree.')
+            visited.add(rid)
+            if children.get(rid): pending.extend(children[rid])
+            else: leaves.append(rid)
+        return leaves
+
     def search(self, query, page=1, limit=20, category='all', category_ids=None):
         if not isinstance(query, str) or not query.strip() or len(query) > 200:
             raise PluginError('Search query must contain 1–200 characters.')
@@ -264,22 +294,12 @@ class MTeam:
         # Explicit IDs take precedence, including when replaying category='custom'
         # returned by the previous page.
         if category_ids is not None:
-            if (not isinstance(category_ids, list) or not 1 <= len(category_ids) <= 30
+            if (not isinstance(category_ids, list) or not 1 <= len(category_ids) <= 2000
                     or any(not isinstance(x, str) or not re.fullmatch(r'[0-9]{1,10}', x) for x in category_ids)):
-                raise PluginError('category_ids requires 1–30 numeric string IDs.')
+                raise PluginError('category_ids requires 1–2000 numeric string IDs.')
             categories = list(dict.fromkeys(category_ids))
         else:
-            if not isinstance(category, str):
-                raise PluginError('Category must be a string; use pt_categories for supported names.')
-            resolved_category = CATEGORY_ALIASES.get(category, category)
-            if resolved_category in CATEGORY_PRESETS:
-                categories = CATEGORY_PRESETS[resolved_category]
-            elif category in CATEGORY_CATALOG.values():
-                categories = [key for key,value in CATEGORY_CATALOG.items() if value == category]
-            elif category in CATEGORY_CATALOG:
-                categories = [category]
-            else:
-                raise PluginError('Unknown category. Use pt_categories or explicit category_ids; do not guess names.')
+            categories = self.resolve_category(category)
         data = self.api(self.cfg.get('search_path', '/api/torrent/search'),
                         {'mode': self.cfg.get('search_mode', 'normal'), 'keyword': query,
                          'categories': categories, 'pageNumber': page, 'pageSize': limit})

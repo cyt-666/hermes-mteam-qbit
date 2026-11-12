@@ -88,9 +88,9 @@ class Tests(unittest.TestCase):
             with self.assertRaises(PluginError):torrent_hash(bad)
     @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
     def test_category_filter_and_pagination(self):
-        http=FakeHTTP([json.dumps({'code':0,'data':{'data':[],'pageNumber':'2','totalPages':'4','total':'70'}}).encode()])
-        result=MTeam({'base_url':'https://example.com'},http).search('sample',page=2,limit=20,category='tv')
-        self.assertEqual(json.loads(http.calls[0][0][3])['categories'],['403','402','435','438','404','405'])
+        http=FakeHTTP([json.dumps({'code':0,'data':{'list':[{'id':'902','nameChs':'测试1'},{'id':'903','nameChs':'测试2'}], 'tvshow':['902','903']}}).encode(), json.dumps({'code':0,'data':{'data':[],'pageNumber':'2','totalPages':'4','total':'70'}}).encode()])
+        result=MTeam({'base_url':'https://example.com'},http).search('sample',page=2,limit=20,category='tvshow')
+        self.assertEqual(json.loads(http.calls[1][0][3])['categories'],['902','903'])
         self.assertTrue(result['has_more']);self.assertEqual(result['next_page'],3);self.assertEqual(result['previous_page'],1)
     @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
     def test_custom_categories_and_unknown_end(self):
@@ -116,19 +116,54 @@ class Tests(unittest.TestCase):
         result=MTeam({'base_url':'https://example.com'},http).search('sample')
         self.assertFalse(result['has_more']);self.assertIsNone(result['next_page'])
         mt=MTeam({'base_url':'https://example.com'},FakeHTTP([]))
-        for kw in [{'page':True},{'page':0},{'limit':51},{'category':'invented'},{'category_ids':[]},{'category_ids':['x']},{'category_ids':[401]}]:
+        for kw in [{'page':True},{'page':0},{'limit':51},{'category_ids':[]},{'category_ids':['x']},{'category_ids':[401]}]:
             with self.assertRaises(PluginError):mt.search('sample',**kw)
     @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
-    def test_non_media_categories_by_name_and_id(self):
-        for name,ids in [('游戏',['423','448']),('软件',['422']),('PC游戏',['423']),('教育电子书',['427']),('453',['453']),('education',['404','427','442','451'])]:
-            http=FakeHTTP([b'{"code":0,"data":{"data":[]}}'])
-            result=MTeam({'base_url':'https://example.com'},http).search('sample',category=name)
-            self.assertEqual(result['category_ids'],ids)
-    def test_category_catalog_is_readonly_public_data(self):
-        from core import category_catalog
-        catalog=category_catalog()
-        self.assertEqual(len(catalog['categories']),22)
-        self.assertIn({'id':'422','name':'软件'},catalog['categories'])
+    def test_live_categories_name_tree_and_whitelist(self):
+        data={'list':[{'id':'900','nameChs':'新分类','parent':None,'private':'secret'},
+                      {'id':'901','nameChs':'新子类','parent':'900'}], 'newGroup':['901']}
+        http=FakeHTTP([json.dumps({'code':0,'data':data}).encode(),
+                       b'{"code":0,"data":{"data":[]}}'])
+        result=MTeam({'base_url':'https://example.com'},http).search('sample',category='新分类')
+        self.assertEqual(result['category_ids'],['901'])
+        self.assertIsNone(http.calls[0][0][3])
+        self.assertTrue(http.calls[0][0][1].endswith('/api/torrent/categoryList'))
+        self.assertNotIn('Content-Type',http.calls[0][0][2])
+    @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
+    def test_live_category_errors_no_static_fallback(self):
+        cases=[{}, {'list':'bad'}, {'list':[{'id':'1'}]},
+               {'list':[{'id':'1','nameChs':'重复'},{'id':'2','nameChs':'重复'}]},
+               {'list':[{'id':'1','nameChs':'循环','parent':'2'},{'id':'2','nameChs':'子','parent':'1'}]}]
+        for data in cases:
+            http=FakeHTTP([json.dumps({'code':0,'data':data}).encode()])
+            with self.assertRaises(PluginError):
+                MTeam({'base_url':'https://example.com'},http).search('sample',category='循环' if data==cases[-1] else '重复')
+    @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
+    def test_live_catalog_returns_only_metadata(self):
+        data={'list':[{'id':991,'parent':None,'nameChs':'测试','account':'SECRET'}],
+              'movie':[991, 999], 'accountIds':[991], 'token':'SECRET'}
+        http=FakeHTTP([json.dumps({'code':0,'data':data}).encode()])
+        result=MTeam({'base_url':'https://example.com'},http).categories()
+        self.assertEqual(result['categories'],[{'id':'991','parent':None,'nameChs':'测试'}])
+        self.assertEqual(result['groups'],{'movie':['991']})
+        self.assertNotIn('SECRET',json.dumps(result))
+    @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
+    def test_large_dynamic_group_pagination_replay(self):
+        ids=[str(i) for i in range(100,141)]
+        data={'list':[{'id':rid,'nameChs':'类别'+rid} for rid in ids],
+              'movie':ids, 'accountIds':ids, 'waterfall':['999999']}
+        http=FakeHTTP([json.dumps({'code':0,'data':data}).encode(),
+                       b'{"code":0,"data":{"data":[],"totalPages":3}}',
+                       b'{"code":0,"data":{"data":[],"totalPages":3}}'])
+        mt=MTeam({'base_url':'https://example.com'},http)
+        first=mt.search('sample',category='movie')
+        self.assertEqual(len(first['category_ids']),41)
+        second=mt.search('sample',page=first['next_page'],category=first['category'],
+                         category_ids=first['category_ids'])
+        self.assertEqual(second['page'],2)
+        self.assertEqual(json.loads(http.calls[2][0][3])['categories'],ids)
+        with self.assertRaises(PluginError):
+            mt.search('sample',category_ids=['1']*2001)
     def test_bad_endpoint(self):
         for path in ['//evil/x','https://evil','/../x','/x?key=abc']:
             with self.assertRaises(PluginError):endpoint('https://example.com',path)

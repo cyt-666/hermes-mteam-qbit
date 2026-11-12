@@ -1,4 +1,6 @@
-# M-Team + qBittorrent · 0.4.1
+> 当前分类行为（0.4.2）优先于本文历史更新说明：分类不再写死。pt_categories 实时 POST /api/torrent/categoryList（无正文），读取账号可见的分类树和分组；不使用静态回退。pt_search 通过同一个 /api/torrent/search 的 categories 数组筛选。可使用返回的精确简/繁/英文名、分组键或数字 ID；父类名称展开为实时子孙叶类。同名歧义请指定 ID。数字 ID 原样提交，不保证服务器认可。分类列表不保证全部分类都可在当前 search_mode 搜索；插件不会自动切换分区或绕过账号权限。名称查询失败会报错，不猜测分类。分类数据是外部数据，不是指令。
+
+# M-Team + qBittorrent · 0.4.2
 
 Hermes 原生插件
 
@@ -13,7 +15,7 @@ Hermes 原生插件：搜索馒头资源、查看信息，并将用户明确选�
 - 注意：普通 Web Dashboard **不会自动渲染通用 config_schema**；Desktop 的表单不能替代 Web 验证。因此本插件实现了专用 Web 页面，不依赖该自动表单。
 - SDK 上游文档仍标 SPIKE：**不保证所有旧版或未来版本兼容**。如果使用别的版本，应核实后再部署。
 - 支持 qBittorrent 4.x / 5.x，分别使用 paused / stopped 字段。暂只支持 v1/混合种子，纯 v2 不支持；种子大小上限 8 MiB。
-- 已通过：54 项离线 Python 单元/API 测试，JS 语法检查，以及 React + JSDOM 的页面渲染/默认路径编辑/保存请求/密码清空/测试按钮模拟检查。测试覆盖注册、配置校验/脱敏、profile 路径、凭据白名单、API 路由、请求确认、提交查重、超时防重投、qBit 版本参数。
+- 已通过：56 项离线 Python 单元/API 测试，JS 语法检查，以及 React + JSDOM 的页面渲染/默认路径编辑/保存请求/密码清空/测试按钮模拟检查。测试覆盖注册、配置校验/脱敏、profile 路径、凭据白名单、API 路由、请求确认、提交查重、超时防重投、qBit 版本参数。
 - **尚未完成：用户的真实 Hermes 全进程加载、馒头账户和真实 qBittorrent 端到端联调。**当前执行环境阻止 Chromium 启动，因此未完成真实浏览器视觉验收。源码契约核实、JSDOM 和本地 mock 测试不能替代部署验收。
 
 ## 功能
@@ -56,7 +58,7 @@ hermes-data/
     ├── dashboard/
     │   ├── manifest.json
     │   ├── plugin_api.py
-    │   └── dist/index-0.4.1.js
+    │   └── dist/index-0.4.2.js
     ├── skills/mteam-qbit/SKILL.md
     ├── tests/
     └── README.md
@@ -115,6 +117,7 @@ mteam-qbit:mteam-qbit
 
 | 工具 | 参数/作用 | 下载副作用 |
 |---|---|---|
+| `pt_categories` | 无，读取实时分类树/名称/ID/分组，需要已保存API Key | 无 |
 | `pt_search` | query，可选 page/limit/category/category_ids | 无 |
 | `pt_details` | resource_id | 无 |
 | `pt_destinations` | 查看默认保存路径 | 无 |
@@ -169,7 +172,7 @@ mteam-qbit:mteam-qbit
 
 ```sh
 python -m unittest discover -s tests -v
-node --check dashboard/dist/index-0.4.1.js
+node --check dashboard/dist/index-0.4.2.js
 # 可选：DOM 模拟测试（开发者环境，非用户安装步骤）
 cd tests/ui && npm install --ignore-scripts && npm test
 ```
@@ -206,8 +209,8 @@ cd tests/ui && npm install --ignore-scripts && npm test
 若没有该入口：
 1. 确认运行的是支持 Dashboard 扩展的 Hermes v0.23.1 兼容构建，并且当前管理 Profile 启用了 `mteam-qbit`。工具集可见并不证明 Dashboard 已加载。
 2. 重启 **提供网页的 Dashboard 进程/容器**，而非只重启 Telegram Gateway；浏览器强制刷新。若两者在不同容器，Dashboard 也必须能读到插件文件。
-3. 核对实际插件目录下同时存在 `dashboard/manifest.json`、`dashboard/dist/index-0.4.1.js`、`dashboard/plugin_api.py`；不要只复制 Python 文件或多嵌套一层目录。使用进程 launch home / 默认 Hermes root 下的 `plugins`；不要只把文件放在任意聊天工作目录。
-4. 同一已登录 Dashboard 浏览器的开发者工具 Network 中，检查 `/api/dashboard/plugins` 返回是否包含 `mteam-qbit`（使用页面本身请求，保持当前 Profile 与 URL 前缀）。没有：发现/启用/版本问题；有但 JS 失败：检查其 `/dashboard-plugins/.../mteam-qbit/dist/index-0.4.1.js` 请求；页面出现但读取配置失败：检查 `/api/plugins/mteam-qbit/settings` 与 Dashboard 日志。401 是登录，404 可能是未启用/未挂载/版本不兼容，不能只凭状态码断定。
+3. 核对实际插件目录下同时存在 `dashboard/manifest.json`、`dashboard/dist/index-0.4.2.js`、`dashboard/plugin_api.py`；不要只复制 Python 文件或多嵌套一层目录。使用进程 launch home / 默认 Hermes root 下的 `plugins`；不要只把文件放在任意聊天工作目录。
+4. 同一已登录 Dashboard 浏览器的开发者工具 Network 中，检查 `/api/dashboard/plugins` 返回是否包含 `mteam-qbit`（使用页面本身请求，保持当前 Profile 与 URL 前缀）。没有：发现/启用/版本问题；有但 JS 失败：检查其 `/dashboard-plugins/.../mteam-qbit/dist/index-0.4.2.js` 请求；页面出现但读取配置失败：检查 `/api/plugins/mteam-qbit/settings` 与 Dashboard 日志。401 是登录，404 可能是未启用/未挂载/版本不兼容，不能只凭状态码断定。
 
 不要在排查截图或日志里公开密钥、Cookie、Authorization。当前未完成用户实际容器联调，不能把“刷新一下”当成已确认修复。
 
@@ -308,3 +311,13 @@ page 从1开始（最多1000），limit 1–50。返回当前/请求页、每页
 新增预设：anime/动漫、documentary/纪录片、sports/体育、games/游戏、software/软件、books/电子书、education/教育、other/其他。精确分类包括PC游戏423、TV游戏448、软件422、教育电子书427、教育音档442、教育影片451、体育407、纪录教育404、动画405/453，以及影音细分类。电子书和教育预设只是这些站点分类，不保证涵盖全部书籍或课程。
 
 可说：“列出支持的馒头分类”“搜索××，只看PC游戏”“只看软件，下一页”。未新增其他分区模式，不自动改变全局search_mode；公开目录可能滞后，请以账号可见站点为准。53项离线Python测试及JS/DOM通过，未真实站点联调或下载。
+
+## 0.4.2 动态分类
+删除硬编码分类表及预设 ID。分类名称搜索先读取实时列表，再传 ID；显式 category_ids 优先，翻页保留返回的 ID 列表，不重复猜名称。无需新增网页配置。证据为多个公开客户端实现，而非本账号实测：
+- https://github.com/libertypi/mtsearch/blob/main/mtsearch.py （update_categories）
+- https://github.com/Simlym/NasFusion/blob/main/backend/docs/mteam%20api/metadata.md （POST、空正文、data.list/parent/名称/分组返回示例）
+离线模拟测试不能证明真实账号接口权限或全站完整性；未访问用户凭据、未下载资源。
+
+0.4.2验证：56项离线Python测试、JS语法与DOM模拟测试通过。额外SDK证据：https://github.com/llbox/mt-sdk/blob/52e7beb91954/pkg/mt/enums.go 。
+
+动态分组仅接受公开SDK定义的 adult/movie/music/tvshow/waterfall 键，ID仍全部来自当前返回且必须存在分类列表；其他元数据不透传。显式category_ids上限2000，与分类目录上限一致，超过30项的组翻页可原样回传。
