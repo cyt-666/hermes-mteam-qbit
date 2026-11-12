@@ -200,6 +200,9 @@ class MTeam:
         headers = {'x-api-key': secret(self.cfg.get('api_key_env', 'MTEAM_API_KEY')),
                    'Content-Type': 'application/x-www-form-urlencoded' if form else 'application/json',
                    'User-Agent': self.cfg.get('user_agent', 'MTeamQBit/1.0')}
+        if body is None:
+            headers.pop('Content-Type', None)
+            headers['Accept'] = 'application/json, text/plain, */*'
         encoded = None if body is None else urllib.parse.urlencode(body).encode() if form else json.dumps(body).encode()
         result = decode_json(self.http.request('POST', endpoint(self.base, path), headers, encoded))
         status = getattr(self.http, 'last_status', None)

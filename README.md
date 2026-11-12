@@ -1,4 +1,4 @@
-# M-Team + qBittorrent · 0.3.8
+# M-Team + qBittorrent · 0.3.9
 
 Hermes 原生插件
 
@@ -56,7 +56,7 @@ hermes-data/
     ├── dashboard/
     │   ├── manifest.json
     │   ├── plugin_api.py
-    │   └── dist/index-0.3.8.js
+    │   └── dist/index-0.3.9.js
     ├── skills/mteam-qbit/SKILL.md
     ├── tests/
     └── README.md
@@ -169,7 +169,7 @@ mteam-qbit:mteam-qbit
 
 ```sh
 python -m unittest discover -s tests -v
-node --check dashboard/dist/index-0.3.8.js
+node --check dashboard/dist/index-0.3.9.js
 # 可选：DOM 模拟测试（开发者环境，非用户安装步骤）
 cd tests/ui && npm install --ignore-scripts && npm test
 ```
@@ -206,8 +206,8 @@ cd tests/ui && npm install --ignore-scripts && npm test
 若没有该入口：
 1. 确认运行的是支持 Dashboard 扩展的 Hermes v0.23.1 兼容构建，并且当前管理 Profile 启用了 `mteam-qbit`。工具集可见并不证明 Dashboard 已加载。
 2. 重启 **提供网页的 Dashboard 进程/容器**，而非只重启 Telegram Gateway；浏览器强制刷新。若两者在不同容器，Dashboard 也必须能读到插件文件。
-3. 核对实际插件目录下同时存在 `dashboard/manifest.json`、`dashboard/dist/index-0.3.8.js`、`dashboard/plugin_api.py`；不要只复制 Python 文件或多嵌套一层目录。使用进程 launch home / 默认 Hermes root 下的 `plugins`；不要只把文件放在任意聊天工作目录。
-4. 同一已登录 Dashboard 浏览器的开发者工具 Network 中，检查 `/api/dashboard/plugins` 返回是否包含 `mteam-qbit`（使用页面本身请求，保持当前 Profile 与 URL 前缀）。没有：发现/启用/版本问题；有但 JS 失败：检查其 `/dashboard-plugins/.../mteam-qbit/dist/index-0.3.8.js` 请求；页面出现但读取配置失败：检查 `/api/plugins/mteam-qbit/settings` 与 Dashboard 日志。401 是登录，404 可能是未启用/未挂载/版本不兼容，不能只凭状态码断定。
+3. 核对实际插件目录下同时存在 `dashboard/manifest.json`、`dashboard/dist/index-0.3.9.js`、`dashboard/plugin_api.py`；不要只复制 Python 文件或多嵌套一层目录。使用进程 launch home / 默认 Hermes root 下的 `plugins`；不要只把文件放在任意聊天工作目录。
+4. 同一已登录 Dashboard 浏览器的开发者工具 Network 中，检查 `/api/dashboard/plugins` 返回是否包含 `mteam-qbit`（使用页面本身请求，保持当前 Profile 与 URL 前缀）。没有：发现/启用/版本问题；有但 JS 失败：检查其 `/dashboard-plugins/.../mteam-qbit/dist/index-0.3.9.js` 请求；页面出现但读取配置失败：检查 `/api/plugins/mteam-qbit/settings` 与 Dashboard 日志。401 是登录，404 可能是未启用/未挂载/版本不兼容，不能只凭状态码断定。
 
 不要在排查截图或日志里公开密钥、Cookie、Authorization。当前未完成用户实际容器联调，不能把“刷新一下”当成已确认修复。
 
@@ -286,3 +286,9 @@ HTTP 错误仅提供状态和 JSON/HTML/other 分类、Cloudflare 响应标记�
 脱敏是保守规则，不能保证识别任意格式的个人信息，分享截图前仍应检查。原文仍可能说明站点业务限制，而不是已确认根因。48项Python测试包含真实HTTP wrapper→MTeam解析→Dashboard响应链及message脱敏/长度测试；未使用真实账户联调。
 
 0.3.8 脱敏补充：先规范化标签/控制字符再过滤，并对已知凭据再次检查；出现凭据键赋值（包括带空格的引号值）时整条 message 略过，不做可能漏掉后半截的局部替换。已加入审核复现的回归测试。
+
+## 0.3.9：修正空正文连接请求头
+
+修复 `/api/member/profile` 无正文却声明 `Content-Type: application/json` 的不一致。现在该连接测试无正文、不设置 Content-Type，并使用 MoviePilot 同款 `Accept: application/json, text/plain, */*`；UA、API Key 仍按原配置。正常搜索 JSON 正文/请求头以及代理行为不变。
+
+48项离线测试通过，精确断言 profile 请求头和空正文，并保留搜索请求不变回归。此修复针对已确认的请求格式问题，尚未在用户账户验证连接成功，不宣称 HTTP403 或业务code1已解决。

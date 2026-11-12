@@ -106,7 +106,9 @@ class Tests(unittest.TestCase):
         self.assertEqual(args[0],'POST')
         self.assertEqual(args[1],'https://example.com/api/member/profile')
         self.assertIsNone(args[3])
-        self.assertNotIn('Accept',args[2])
+        self.assertNotIn('Content-Type',args[2])
+        self.assertEqual(args[2]['Accept'],'application/json, text/plain, */*')
+        self.assertEqual(set(args[2]),{'Accept','User-Agent','x-api-key'})
     @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
     def test_response_categories_and_no_raw_data(self):
         cases=[([], 'response_shape',None),({'message':'DO_NOT_ECHO'},'response_code_missing',None),
