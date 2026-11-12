@@ -99,6 +99,18 @@ class Tests(unittest.TestCase):
         self.assertEqual(result['category_ids'],['434']);self.assertEqual(result['category'],'custom')
         self.assertIsNone(result['has_more']);self.assertIsNone(result['next_page'])
     @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
+    def test_custom_category_pagination_replay(self):
+        http=FakeHTTP([b'{"code":0,"data":{"data":[],"totalPages":3}}'] * 2)
+        mt=MTeam({'base_url':'https://example.com'},http)
+        first=mt.search('sample',category_ids=['422'])
+        second=mt.search('sample',page=first['next_page'],
+                         category=first['category'],category_ids=first['category_ids'])
+        body=json.loads(http.calls[1][0][3])
+        self.assertEqual(body['pageNumber'],2)
+        self.assertEqual(body['categories'],['422'])
+        self.assertEqual(second['category'],'custom')
+        self.assertEqual(second['next_page'],3)
+    @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
     def test_pagination_end_and_invalid_inputs(self):
         http=FakeHTTP([b'{"code":0,"data":{"data":[],"total":20}}'])
         result=MTeam({'base_url':'https://example.com'},http).search('sample')
@@ -106,6 +118,17 @@ class Tests(unittest.TestCase):
         mt=MTeam({'base_url':'https://example.com'},FakeHTTP([]))
         for kw in [{'page':True},{'page':0},{'limit':51},{'category':'invented'},{'category_ids':[]},{'category_ids':['x']},{'category_ids':[401]}]:
             with self.assertRaises(PluginError):mt.search('sample',**kw)
+    @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
+    def test_non_media_categories_by_name_and_id(self):
+        for name,ids in [('游戏',['423','448']),('软件',['422']),('PC游戏',['423']),('教育电子书',['427']),('453',['453']),('education',['404','427','442','451'])]:
+            http=FakeHTTP([b'{"code":0,"data":{"data":[]}}'])
+            result=MTeam({'base_url':'https://example.com'},http).search('sample',category=name)
+            self.assertEqual(result['category_ids'],ids)
+    def test_category_catalog_is_readonly_public_data(self):
+        from core import category_catalog
+        catalog=category_catalog()
+        self.assertEqual(len(catalog['categories']),22)
+        self.assertIn({'id':'422','name':'软件'},catalog['categories'])
     def test_bad_endpoint(self):
         for path in ['//evil/x','https://evil','/../x','/x?key=abc']:
             with self.assertRaises(PluginError):endpoint('https://example.com',path)
@@ -185,7 +208,7 @@ class Tests(unittest.TestCase):
             def register_tool(self,**kwargs):self.tools.append(kwargs)
             def register_skill(self,**kwargs):self.skill=kwargs
         ctx=Context();plugin.register(ctx)
-        self.assertEqual(len(ctx.tools),6)
+        self.assertEqual(len(ctx.tools),7)
         self.assertTrue(ctx.skill["path"].is_file())
         self.assertTrue(all(callable(x['handler']) for x in ctx.tools))
         schema=next(x['schema'] for x in ctx.tools if x['name']=='pt_prepare_download')

@@ -1,4 +1,4 @@
-# M-Team + qBittorrent · 0.4.0
+# M-Team + qBittorrent · 0.4.1
 
 Hermes 原生插件
 
@@ -13,7 +13,7 @@ Hermes 原生插件：搜索馒头资源、查看信息，并将用户明确选�
 - 注意：普通 Web Dashboard **不会自动渲染通用 config_schema**；Desktop 的表单不能替代 Web 验证。因此本插件实现了专用 Web 页面，不依赖该自动表单。
 - SDK 上游文档仍标 SPIKE：**不保证所有旧版或未来版本兼容**。如果使用别的版本，应核实后再部署。
 - 支持 qBittorrent 4.x / 5.x，分别使用 paused / stopped 字段。暂只支持 v1/混合种子，纯 v2 不支持；种子大小上限 8 MiB。
-- 已通过：51 项离线 Python 单元/API 测试，JS 语法检查，以及 React + JSDOM 的页面渲染/默认路径编辑/保存请求/密码清空/测试按钮模拟检查。测试覆盖注册、配置校验/脱敏、profile 路径、凭据白名单、API 路由、请求确认、提交查重、超时防重投、qBit 版本参数。
+- 已通过：54 项离线 Python 单元/API 测试，JS 语法检查，以及 React + JSDOM 的页面渲染/默认路径编辑/保存请求/密码清空/测试按钮模拟检查。测试覆盖注册、配置校验/脱敏、profile 路径、凭据白名单、API 路由、请求确认、提交查重、超时防重投、qBit 版本参数。
 - **尚未完成：用户的真实 Hermes 全进程加载、馒头账户和真实 qBittorrent 端到端联调。**当前执行环境阻止 Chromium 启动，因此未完成真实浏览器视觉验收。源码契约核实、JSDOM 和本地 mock 测试不能替代部署验收。
 
 ## 功能
@@ -56,7 +56,7 @@ hermes-data/
     ├── dashboard/
     │   ├── manifest.json
     │   ├── plugin_api.py
-    │   └── dist/index-0.4.0.js
+    │   └── dist/index-0.4.1.js
     ├── skills/mteam-qbit/SKILL.md
     ├── tests/
     └── README.md
@@ -169,7 +169,7 @@ mteam-qbit:mteam-qbit
 
 ```sh
 python -m unittest discover -s tests -v
-node --check dashboard/dist/index-0.4.0.js
+node --check dashboard/dist/index-0.4.1.js
 # 可选：DOM 模拟测试（开发者环境，非用户安装步骤）
 cd tests/ui && npm install --ignore-scripts && npm test
 ```
@@ -206,8 +206,8 @@ cd tests/ui && npm install --ignore-scripts && npm test
 若没有该入口：
 1. 确认运行的是支持 Dashboard 扩展的 Hermes v0.23.1 兼容构建，并且当前管理 Profile 启用了 `mteam-qbit`。工具集可见并不证明 Dashboard 已加载。
 2. 重启 **提供网页的 Dashboard 进程/容器**，而非只重启 Telegram Gateway；浏览器强制刷新。若两者在不同容器，Dashboard 也必须能读到插件文件。
-3. 核对实际插件目录下同时存在 `dashboard/manifest.json`、`dashboard/dist/index-0.4.0.js`、`dashboard/plugin_api.py`；不要只复制 Python 文件或多嵌套一层目录。使用进程 launch home / 默认 Hermes root 下的 `plugins`；不要只把文件放在任意聊天工作目录。
-4. 同一已登录 Dashboard 浏览器的开发者工具 Network 中，检查 `/api/dashboard/plugins` 返回是否包含 `mteam-qbit`（使用页面本身请求，保持当前 Profile 与 URL 前缀）。没有：发现/启用/版本问题；有但 JS 失败：检查其 `/dashboard-plugins/.../mteam-qbit/dist/index-0.4.0.js` 请求；页面出现但读取配置失败：检查 `/api/plugins/mteam-qbit/settings` 与 Dashboard 日志。401 是登录，404 可能是未启用/未挂载/版本不兼容，不能只凭状态码断定。
+3. 核对实际插件目录下同时存在 `dashboard/manifest.json`、`dashboard/dist/index-0.4.1.js`、`dashboard/plugin_api.py`；不要只复制 Python 文件或多嵌套一层目录。使用进程 launch home / 默认 Hermes root 下的 `plugins`；不要只把文件放在任意聊天工作目录。
+4. 同一已登录 Dashboard 浏览器的开发者工具 Network 中，检查 `/api/dashboard/plugins` 返回是否包含 `mteam-qbit`（使用页面本身请求，保持当前 Profile 与 URL 前缀）。没有：发现/启用/版本问题；有但 JS 失败：检查其 `/dashboard-plugins/.../mteam-qbit/dist/index-0.4.1.js` 请求；页面出现但读取配置失败：检查 `/api/plugins/mteam-qbit/settings` 与 Dashboard 日志。401 是登录，404 可能是未启用/未挂载/版本不兼容，不能只凭状态码断定。
 
 不要在排查截图或日志里公开密钥、Cookie、Authorization。当前未完成用户实际容器联调，不能把“刷新一下”当成已确认修复。
 
@@ -222,7 +222,7 @@ cd tests/ui && npm install --ignore-scripts && npm test
 - 修复测试连接失败时前端统一隐藏原因的问题：现在显示脱敏错误码及静态解释，区分凭据未读取、HTTP 状态、网络超时、跳转、JSON/搜索结构等；不返回密钥、Cookie、完整 URL 或上游响应正文。
 - 对齐插件与 Dashboard manifest 的版本号，增加版本/资产一致性测试。
 - 完善配置入口、当前 Profile、Dashboard 进程重启及连接失败排查说明。
-- 51 项离线 Python 测试及 React/JSDOM 页面测试通过。此补丁改善诊断，**不表示已经查明或修复用户实际网络/认证故障**；未使用真实账户联调或提交下载。
+- 54 项离线 Python 测试及 React/JSDOM 页面测试通过。此补丁改善诊断，**不表示已经查明或修复用户实际网络/认证故障**；未使用真实账户联调或提交下载。
 - 更新后重启提供 Dashboard 的进程/容器并强制刷新浏览器，再测试一次。若仍失败，记录错误码即可，不要发送密钥或请求头。
 
 ## 0.3.2 更新记录
@@ -300,3 +300,11 @@ HTTP 错误仅提供状态和 JSON/HTML/other 分类、Cloudflare 响应标记�
 page 从1开始（最多1000），limit 1–50。返回当前/请求页、每页数量、站点total/totalPages、has_more与next_page/previous_page。站点没给可靠总量时has_more=null，不据短页推断结束；有更多但达到本插件1000页限制时不返回下一页。没有自动爬全站、后台翻页或下载副作用。Skill要求下一页保持关键词/筛选/页大小，换关键词或筛选重置第一页。
 
 51项离线Python测试以及JS/DOM检查通过，覆盖分类预设、自定义覆盖/去重、分页有下一页/结束/未知和非法参数。未使用用户站点账号或实际种子联调。
+
+## 0.4.1：不只影音的分类目录
+
+新增 `pt_categories`，无需账号请求即可列出22个已核实普通区分类（公开Jackett映射及来源），不是站点实时全类别。搜索 `category` 可用预设、中文别名、目录中的精确名称或已知ID；`category_ids` 可显式覆盖。未知名称报错而不猜ID。
+
+新增预设：anime/动漫、documentary/纪录片、sports/体育、games/游戏、software/软件、books/电子书、education/教育、other/其他。精确分类包括PC游戏423、TV游戏448、软件422、教育电子书427、教育音档442、教育影片451、体育407、纪录教育404、动画405/453，以及影音细分类。电子书和教育预设只是这些站点分类，不保证涵盖全部书籍或课程。
+
+可说：“列出支持的馒头分类”“搜索××，只看PC游戏”“只看软件，下一页”。未新增其他分区模式，不自动改变全局search_mode；公开目录可能滞后，请以账号可见站点为准。53项离线Python测试及JS/DOM通过，未真实站点联调或下载。

@@ -13,6 +13,32 @@ import urllib.request
 from pathlib import Path, PurePosixPath
 
 
+# Public normal-section mappings, not an account-specific live catalog.
+CATEGORY_CATALOG = {
+    '401':'电影SD', '419':'电影HD', '420':'电影DVDiSo', '421':'电影Blu-Ray', '439':'电影Remux',
+    '403':'剧集综艺SD', '402':'剧集综艺HD', '438':'剧集综艺BD', '435':'剧集综艺DVDiSo',
+    '404':'纪录教育', '434':'无损音乐', '406':'演唱MV', '423':'PC游戏', '448':'TV游戏',
+    '405':'动画', '453':'动画BluRay', '407':'体育运动', '427':'教育电子书', '422':'软件',
+    '442':'教育音档', '451':'教育影片', '409':'其他',
+}
+CATEGORY_PRESETS = {
+    'all':[], 'movie':['401','419','420','421','439','405','404'],
+    'tv':['403','402','435','438','404','405'], 'music':['434','406'],
+    'anime':['405','453'], 'documentary':['404'], 'sports':['407'],
+    'games':['423','448'], 'software':['422'], 'books':['427'],
+    'education':['404','427','442','451'], 'other':['409'],
+}
+CATEGORY_ALIASES = {'全部':'all','电影':'movie','剧集':'tv','电视剧':'tv','综艺':'tv','音乐':'music','动漫':'anime',
+                    '纪录片':'documentary','体育':'sports','游戏':'games','软件':'software','电子书':'books','教育':'education','其他':'other'}
+
+
+def category_catalog():
+    return {'scope':'Public normal-section mapping; not a live or complete account catalog.',
+            'source':'https://github.com/Jackett/Jackett/blob/master/src/Jackett.Common/Indexers/Definitions/MTeamTp.cs',
+            'categories':[{'id':key,'name':value} for key,value in CATEGORY_CATALOG.items()],
+            'presets':CATEGORY_PRESETS, 'aliases':CATEGORY_ALIASES}
+
+
 class PluginError(Exception):
     pass
 
@@ -235,20 +261,25 @@ class MTeam:
             raise PluginError('Search query must contain 1–200 characters.')
         if type(page) is not int or type(limit) is not int or not 1 <= page <= 1000 or not 1 <= limit <= 50:
             raise PluginError('Pagination requires page 1–1000 and limit 1–50.')
-        presets = {
-            'all': [],
-            'movie': ['401','419','420','421','439','405','404'],
-            'tv': ['403','402','435','438','404','405'],
-            'music': ['434','406'],
-        }
-        if not isinstance(category, str) or category not in presets:
-            raise PluginError('Category must be all, movie, tv or music; use category_ids for site-specific IDs.')
-        categories = presets[category]
+        # Explicit IDs take precedence, including when replaying category='custom'
+        # returned by the previous page.
         if category_ids is not None:
             if (not isinstance(category_ids, list) or not 1 <= len(category_ids) <= 30
                     or any(not isinstance(x, str) or not re.fullmatch(r'[0-9]{1,10}', x) for x in category_ids)):
                 raise PluginError('category_ids requires 1–30 numeric string IDs.')
             categories = list(dict.fromkeys(category_ids))
+        else:
+            if not isinstance(category, str):
+                raise PluginError('Category must be a string; use pt_categories for supported names.')
+            resolved_category = CATEGORY_ALIASES.get(category, category)
+            if resolved_category in CATEGORY_PRESETS:
+                categories = CATEGORY_PRESETS[resolved_category]
+            elif category in CATEGORY_CATALOG.values():
+                categories = [key for key,value in CATEGORY_CATALOG.items() if value == category]
+            elif category in CATEGORY_CATALOG:
+                categories = [category]
+            else:
+                raise PluginError('Unknown category. Use pt_categories or explicit category_ids; do not guess names.')
         data = self.api(self.cfg.get('search_path', '/api/torrent/search'),
                         {'mode': self.cfg.get('search_mode', 'normal'), 'keyword': query,
                          'categories': categories, 'pageNumber': page, 'pageSize': limit})

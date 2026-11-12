@@ -20,7 +20,7 @@ class DashboardTests(unittest.TestCase):
         with patch.object(api.settings,'read_settings',return_value=api.settings.DEFAULTS),patch.object(api.settings,'secret_presence',return_value={'mteam_api_key':True}):
             res=self.client.get('/api/plugins/mteam-qbit/settings')
             self.assertEqual(res.status_code,200)
-            self.assertEqual(res.json()['backend_version'],'0.4.0')
+            self.assertEqual(res.json()['backend_version'],'0.4.1')
             self.assertTrue(res.json()['secrets_set']['mteam_api_key'])
             self.assertNotIn('value',res.json()['secrets_set'])
     def test_save_route_delegates(self):
