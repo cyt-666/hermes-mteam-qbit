@@ -221,15 +221,25 @@ class QBit:
             raise PluginError('qBittorrent did not acknowledge submission; check status before retrying.')
 
 
+def save_path(value):
+    """Validate qBittorrent's POSIX path, not a path on the Hermes host."""
+    if (not isinstance(value, str) or not value.startswith('/') or value.startswith('//')
+            or len(value) > 4096 or '..' in PurePosixPath(value).parts
+            or any(ord(c) < 32 or ord(c) == 127 for c in value)):
+        raise PluginError('Save path must be an absolute qBittorrent POSIX path without .. or control characters.')
+    return str(PurePosixPath(value))
+
+
+def configured_default(cfg):
+    # v0.2 migration: use the first saved alias until the administrator saves the new form.
+    legacy = cfg.get('destinations', {})
+    return save_path(cfg.get('default_save_path', next(iter(legacy.values()), '/downloads')))
+
+
 class App:
     def __init__(self, cfg, mt=None, qb=None):
         self.cfg = cfg
-        self.destinations = cfg.get('destinations', {})
-        if not self.destinations:
-            raise PluginError('Configure at least one destination alias.')
-        for alias, path in self.destinations.items():
-            if not re.fullmatch(r'[a-zA-Z0-9_-]{1,40}', alias) or not isinstance(path, str) or not path.startswith('/') or '..' in PurePosixPath(path).parts or any(c in path for c in '\r\n\0'):
-                raise PluginError('Destination must be a named absolute POSIX path without traversal.')
+        self.default_save_path = configured_default(cfg)
         self.mt = mt or MTeam(cfg['mteam'], HTTP())
         self.qb = qb or QBit(cfg['qbittorrent'], HTTP())
         state = Path(cfg.get('state_path', '~/.hermes/mteam-qbit/state.sqlite3')).expanduser()
@@ -239,9 +249,9 @@ class App:
         self.db.execute('CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, rid TEXT, title TEXT, destination TEXT, path TEXT, created REAL, state TEXT, hash TEXT, paused INTEGER, category TEXT)')
         self.db.commit()
 
-    def prepare(self, rid, destination):
-        if destination not in self.destinations:
-            raise PluginError('Unknown destination alias. Use pt_destinations.')
+    def prepare(self, rid, path=None):
+        resolved = self.default_save_path if path is None else save_path(path)
+        source = 'default-v3' if path is None else 'explicit-v3'
         details = self.mt.details(resource_id(rid))
         request_id = secrets.token_hex(16)
         paused = bool(self.cfg.get('start_paused', False))
@@ -249,9 +259,9 @@ class App:
         if not isinstance(category, str) or any(c in category for c in '\r\n\0'):
             raise PluginError('Invalid category.')
         self.db.execute('INSERT INTO requests VALUES (?,?,?,?,?,?,?,?,?,?)',
-                        (request_id, str(rid), details['title'], destination, self.destinations[destination], time.time(), 'prepared', None, paused, category))
+                        (request_id, str(rid), details['title'], source, resolved, time.time(), 'prepared', None, paused, category))
         self.db.commit()
-        return {'request_id': request_id, 'resource': details, 'save_path': self.destinations[destination],
+        return {'request_id': request_id, 'resource': details, 'save_path': resolved,
                 'start_paused': paused, 'category': category, 'state': 'awaiting_operator_approval',
                 'next_step': 'Show this exact resource and destination to the user. Submit only after their explicit selection/confirmation; never infer consent from search.'}
 
@@ -289,8 +299,10 @@ class App:
             raise PluginError('User confirmation is required; prepare alone does not authorize submission.')
         if time.time() - row['created'] > self.cfg.get('approval_ttl_seconds', 900):
             raise PluginError('Approval expired; prepare again.')
-        if self.destinations.get(row['destination']) != row['path']:
-            raise PluginError('Destination changed after approval; prepare again.')
+        if row['destination'] not in ('default-v3', 'explicit-v3'):
+            raise PluginError('Legacy prepared request; prepare again with a save path.')
+        save_path(row['path'])
+        # Freeze the path shown during prepare. A later default change never redirects it.
         torrent = self.mt.torrent(row['rid'])
         digest = torrent_hash(torrent)
         # Serialize approval consumption before network side effect. Parallel calls cannot double-submit.

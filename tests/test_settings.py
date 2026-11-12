@@ -40,7 +40,7 @@ class SettingsTests(unittest.TestCase):
         with self.assertRaises(PluginError):settings.save_settings(settings.DEFAULTS,{'OPENAI_API_KEY':'never'})
         self.assertEqual(self.saved,{})
     def test_validation_before_secret_write(self):
-        with self.assertRaises(PluginError):settings.save_settings({**settings.DEFAULTS,'destinations':{'bad':'/a/../b'}},{'qbit_password':'never'})
+        with self.assertRaises(PluginError):settings.save_settings({**settings.DEFAULTS,'default_save_path':'/a/../b'},{'qbit_password':'never'})
         self.assertEqual(self.saved,{})
     def test_no_invalid_or_url_secrets(self):
         for values in [{'mteam_url':'http://example.com'}, {'qbit_url':'https://user:pass@example.com'}, {'download_hosts':['*.example.com']}, {'start_paused':'false'}, {'approval_ttl_seconds':0}, {'secret':'no'}]:
@@ -57,6 +57,12 @@ class SettingsTests(unittest.TestCase):
         settings.save_settings(settings.DEFAULTS)
         path=settings.config_path();obj=json.loads(path.read_text());obj['password']='TEST_SECRET';path.write_text(json.dumps(obj))
         self.assertNotIn('TEST_SECRET',json.dumps(settings.read_settings()))
+    def test_legacy_default_visible(self):
+        cfg={'destinations':{'tv':'/tv','movies':'/movies'}}
+        values=settings.public_values(cfg)
+        self.assertEqual(values['default_save_path'],'/tv')
+        self.assertNotIn('destinations',values)
+        self.assertNotIn('destinations',settings.to_config(values,self.home/'config.json'))
     def test_secret_scope_fail_closed(self):
         from pt_web_test.core import secret
         with patch('agent.secret_scope.get_secret',side_effect=RuntimeError('scope required')):

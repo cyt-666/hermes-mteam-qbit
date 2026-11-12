@@ -29,10 +29,10 @@ class FakeHTTP:
 class Tests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory()
-        self.cfg={'destinations':{'movies':'/downloads/movies'},'state_path':self.tmp.name+'/state.db','mteam':{},'qbittorrent':{}}
+        self.cfg={'default_save_path':'/downloads/movies','state_path':self.tmp.name+'/state.db','mteam':{},'qbittorrent':{}}
         self.q=QB();self.app=App(self.cfg,MT(),self.q)
     def tearDown(self): self.app.db.close();self.tmp.cleanup()
-    def prepared(self): return self.app.prepare('123','movies')['request_id']
+    def prepared(self): return self.app.prepare('123')['request_id']
     def test_approval_required(self):
         rid=self.prepared()
         with self.assertRaises(PluginError): self.app.submit(rid)
@@ -53,13 +53,35 @@ class Tests(unittest.TestCase):
         rid=self.prepared()
         with patch('core.time.time',return_value=1e12):
             with self.assertRaises(PluginError):self.app.approve(rid)
-    def test_changed_path(self):
-        rid=self.prepared();self.app.approve(rid);self.app.destinations['movies']='/other'
-        with self.assertRaises(PluginError):self.app.submit(rid)
+    def test_changed_default_keeps_snapshot(self):
+        rid=self.prepared();self.app.default_save_path='/other'
+        self.app.submit(rid,True)
+        self.assertEqual(self.q.calls[0][1],'/downloads/movies')
+    def test_override_outside_default(self):
+        result=self.app.prepare('123','/media/电影/new/')
+        self.assertEqual(result['save_path'],'/media/电影/new')
+        self.app.submit(result['request_id'],True)
+        self.assertEqual(self.q.calls[0][1],'/media/电影/new')
+    def test_existing_not_moved(self):
+        self.q.tasks=[{'save_path':'/original','hash':torrent_hash(TORRENT)}]
+        result=self.app.prepare('123','/other')
+        self.assertEqual(self.app.submit(result['request_id'],True)['tasks'][0]['save_path'],'/original')
+        self.assertFalse(self.q.calls)
     def test_path_traversal(self):
-        with self.assertRaises(PluginError):self.app.prepare('123','../../tmp')
-        cfg=dict(self.cfg,destinations={'bad':'/downloads/../etc'})
+        for path in ['../../tmp','/downloads/../etc','','//host/share','/x\nheader',False,123]:
+            with self.assertRaises(PluginError):self.app.prepare('123',path)
+        cfg=dict(self.cfg,default_save_path='/downloads/../etc')
         with self.assertRaises(PluginError):App(cfg,MT(),self.q)
+    def test_legacy_request_requires_prepare(self):
+        rid=self.prepared()
+        self.app.db.execute("UPDATE requests SET destination='movies' WHERE id=?",(rid,));self.app.db.commit()
+        with self.assertRaisesRegex(PluginError,'Legacy'):self.app.submit(rid,True)
+        self.assertFalse(self.q.calls)
+    def test_legacy_config_migration(self):
+        cfg=dict(self.cfg);cfg.pop('default_save_path');cfg['destinations']={'tv':'/tv','movies':'/movies'}
+        other=App(cfg,MT(),self.q)
+        try:self.assertEqual(other.default_save_path,'/tv')
+        finally:other.db.close()
     def test_hash(self):
         self.assertEqual(torrent_hash(TORRENT),hashlib.sha1(TORRENT[7:-1]).hexdigest())
         for bad in [b'<html>',b'd4:infodee',TORRENT+b'x',b'd4:info999999:x']:
@@ -99,5 +121,8 @@ class Tests(unittest.TestCase):
         self.assertEqual(len(ctx.tools),6)
         self.assertTrue(ctx.skill["path"].is_file())
         self.assertTrue(all(callable(x['handler']) for x in ctx.tools))
+        schema=next(x['schema'] for x in ctx.tools if x['name']=='pt_prepare_download')
+        self.assertEqual(schema['parameters']['required'],['resource_id'])
+        self.assertIn('save_path',schema['parameters']['properties'])
 
 if __name__=='__main__':unittest.main()

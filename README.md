@@ -1,4 +1,4 @@
-# M-Team + qBittorrent · 0.2.0
+# M-Team + qBittorrent · 0.3.0
 
 Hermes 原生插件
 
@@ -13,17 +13,17 @@ Hermes 原生插件：搜索馒头资源、查看信息，并将用户明确选�
 - 注意：普通 Web Dashboard **不会自动渲染通用 config_schema**；Desktop 的表单不能替代 Web 验证。因此本插件实现了专用 Web 页面，不依赖该自动表单。
 - SDK 上游文档仍标 SPIKE：**不保证所有旧版或未来版本兼容**。如果使用别的版本，应核实后再部署。
 - 支持 qBittorrent 4.x / 5.x，分别使用 paused / stopped 字段。暂只支持 v1/混合种子，纯 v2 不支持；种子大小上限 8 MiB。
-- 已通过：25 项离线 Python 单元/API 测试，JS 语法检查，以及 React + JSDOM 的页面渲染/目录增删/保存请求/密码清空/测试按钮模拟检查。测试覆盖注册、配置校验/脱敏、profile 路径、凭据白名单、API 路由、请求确认、提交查重、超时防重投、qBit 版本参数。
+- 已通过：30 项离线 Python 单元/API 测试，JS 语法检查，以及 React + JSDOM 的页面渲染/默认路径编辑/保存请求/密码清空/测试按钮模拟检查。测试覆盖注册、配置校验/脱敏、profile 路径、凭据白名单、API 路由、请求确认、提交查重、超时防重投、qBit 版本参数。
 - **尚未完成：用户的真实 Hermes 全进程加载、馒头账户和真实 qBittorrent 端到端联调。**当前执行环境阻止 Chromium 启动，因此未完成真实浏览器视觉验收。源码契约核实、JSDOM 和本地 mock 测试不能替代部署验收。
 
 ## 功能
 
 - 馒头关键词搜索、分页、详情、做种数/大小等信息。
 - 内部获取下载链接和种子，上传到 qBittorrent，不把含 token/passkey 的链接回传模型。
-- 保存目录别名与路径白名单，用户选择资源与目录后提交。
+- 一个默认保存路径；调用可指定其他绝对路径，不指定时使用默认。不限制根路径白名单。
 - 默认添加后直接开始下载；网页可勾选“添加后暂停”作首次验收。
 - 同一请求一次性消耗；按 info-hash 查重；不移动/重启已有任务；超时不自动重复提交。
-- Web 表单：站点地址、qBit 地址、API Key、用户名、密码、目录增删、类别、暂停开关、接口差异高级设置。
+- Web 表单：站点地址、qBit 地址、API Key、用户名、密码、默认路径编辑、类别、暂停开关、接口差异高级设置。
 - Web 测试按钮：馒头认证+一次搜索；qBit 登录+读取版本。**不获取种子、不添加下载、不验证保存目录写权限。**
 
 ## 安装（极空间 Docker / Compose）
@@ -87,7 +87,7 @@ docker compose restart hermes
 1. **馒头 API 地址**：默认 `https://api.m-team.cc`，以账号当前站点可信 API 说明为准；只允许 HTTPS。
 2. **qBittorrent WebUI 地址**：同一 Docker 自定义网络可填 `http://qbittorrent:8080`；否则填 `http://极空间内网IP:WebUI映射端口`。不要填 `localhost`，它在 Hermes 容器里指 Hermes 自己。跨公网建议 HTTPS，勿公网裸露 WebUI。
 3. **凭据**：API Key、qBit 用户名/密码直接输入本页。已有值不回显，只显示“已设置”；留空保留已有值，输入新值替换。
-4. **目录**：添加别名和 **qBittorrent 容器内**绝对路径。例如 NAS 媒体目录映射到 qBit `/downloads`，就填 `movies → /downloads/movies`。不是 NAS 宿主路径，也不是 Hermes 容器路径。
+4. **默认保存路径**：填写 **qBittorrent 容器内**绝对路径，例如 `/downloads`。不是 NAS 宿主路径，也不是 Hermes 容器路径。实际下载时可另指定 `/media/movies` 等绝对路径；省略则使用此默认值。
 5. **类别/暂停**：默认类别 hermes，添加后直接开始；需要暂停验收可勾选。
 6. 点击**保存配置**，再分别点**测试馒头**与**测试 qBittorrent**。测试使用已保存配置，不是未保存的输入。
 
@@ -95,7 +95,7 @@ docker compose restart hermes
 
 ### 5. 使用与验收
 
-先对 Hermes 说：“列出配置的下载目录，不下载。”再测试搜索、详情。最后选一份有权下载的小型测试资源，明确目录后提交，到 qBit 验证实际任务和路径。
+先对 Hermes 说：“查看默认下载路径，不下载。”再测试搜索、详情。最后选一份有权下载的小型测试资源，明确目录后提交，到 qBit 验证实际任务和路径。
 
 无需为此修改 Compose 环境变量。普通配置每次调用重新读取；凭据通过 Hermes 的原生凭据生命周期更新。插件代码更新或首次安装后需重启 Gateway；首次启用后可开新会话确认 Skill 可见。
 
@@ -117,12 +117,12 @@ mteam-qbit:mteam-qbit
 |---|---|---|
 | `pt_search` | query，可选 page/limit | 无 |
 | `pt_details` | resource_id | 无 |
-| `pt_destinations` | 列出目录别名 | 无 |
+| `pt_destinations` | 查看默认保存路径 | 无 |
 | `pt_prepare_download` | resource_id + destination → request_id/摘要 | 无 |
 | `pt_add_download` | request_id + user_confirmed | 添加下载 |
 | `pt_download_status` | request_id | 只查状态 |
 
-示例：“搜索 ××，先列结果，不下载。”然后“下载资源 123 到 movies”。如果用户已经明确选择资源和目录并要求下载，不需机械重复确认。仅“搜索一下”不是下载授权。
+示例：“搜索 ××，先列结果，不下载。”然后“下载资源 123 到 /downloads/movies”。如果用户已经明确选择资源并要求下载（指定路径或使用默认），不需机械重复确认。仅“搜索一下”不是下载授权。
 
 `user_confirmed` 必须依据真实用户指令，仍遵守 Hermes 自己的审批/权限设置，不要求终端手工批准。
 
@@ -149,7 +149,7 @@ mteam-qbit:mteam-qbit
 - 文件级权限和不回显**不等于静态加密**。Hermes 底层凭据存储方式由你的部署决定，不能宣称本插件额外加密。
 - API 挂在 Hermes 自身 `/api/plugins/mteam-qbit/`，使用宿主认证、禁用 gate 和 profile/secret scope，无单独监听端口。前端用 SDK.fetchJSON，不手工读取会话 token；配置/凭据路径每次请求计算，不全局缓存 profile。
 - 私密字段只接受固定白名单；空值保留；修改失败可能部分凭据已更新，页面会提示刷新检查。
-- 凭据若仍在旧 Compose 环境变量中，应核对 Hermes 凭据优先级，避免旧值覆盖新值；正常 0.2.0 安装不需额外 env_file。
+- 凭据若仍在旧 Compose 环境变量中，应核对 Hermes 凭据优先级，避免旧值覆盖新值；正常 0.3.0 安装不需额外 env_file。
 - `user_confirmed` 是模型声明，**不是不可绕过的独立审批系统**。不向陌生人/公共群开放插件或任意 shell；本版没有实现分渠道/分用户授权，也没有额外绕过 Hermes 权限。
 - 目标主机为管理员配置，信任 DNS；不是网络沙箱。凭据不跟随下载 URL 转发，带 token 的完整下载链接不暴露给模型。
 - 种子提交后可能下载和做种。确认摘要绑定资源 ID/标题/路径而非事先取得的内容哈希，需信任站点不会在两步之间替换内容。
@@ -190,3 +190,11 @@ cd tests/ui && npm install --ignore-scripts && npm test
 - URL-encoded 实现：https://docs.rs/mediarium-providers/latest/src/mediarium_providers/site/mteam/provider.rs.html
 - qBittorrent API：https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-%28qBittorrent-5.0%29
 - 5.0 参数变化：https://github.com/qbittorrent/qBittorrent/issues/21476
+
+## 0.3 保存路径规则与升级
+
+- `pt_prepare_download` 参数为 `resource_id` 和可选 `save_path`。省略 `save_path` 使用网页配置的 `default_save_path`；提供时使用用户指定的 qBittorrent 容器内绝对路径，无需预先添加目录别名。例如 `{"resource_id":"123","save_path":"/media/movies"}`，或 `{"resource_id":"123"}` 使用默认。
+- 不实施根目录白名单，也不会在 Hermes 所在容器检查该目录。仅校验绝对 POSIX 路径、长度、控制字符和 `..`，规范化重复斜杠/`.`/尾斜杠；不验证目录存在、可写或符号链接目标。不能据此声称路径隔离安全。qBit 的挂载范围、运行账户权限和 Hermes 的调用者权限才是安全边界；避免特权容器及不必要的可写挂载，只授权可信用户使用提交工具。
+- 准备时返回并固定完整路径，提交不再接受修改路径。之后网页默认值变化不会改变已准备请求；想改当前任务目的地需重新准备。已有同 hash 任务只返回其实际路径，不移动、不重启。
+- 从 0.2 升级时，为保持可读取旧配置，网页和工具暂取旧 `destinations` 中第一个目录作为默认（没有旧目录则 `/downloads`）。请在网页核对后保存；保存后仅保留单一 `default_save_path`，不再保留别名映射。旧版本已准备但未提交的请求必须重新准备，避免旧语义混用；已提交任务不受影响。
+- 安装新文件后重启 Hermes 并刷新页面，确保工具 schema 和 Skill 都更新。不涉及实际下载或自动迁移已有文件。

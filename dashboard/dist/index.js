@@ -9,13 +9,13 @@
   const inputStyle = {padding:'9px',border:'1px solid #8886',borderRadius:'6px',background:'transparent',color:'inherit',width:'100%'};
   const btnStyle = {padding:'9px 15px',border:'1px solid #8888',borderRadius:'6px',marginRight:'8px',cursor:'pointer'};
   function Page() {
-    const [v,setV] = useState(null), [dirs,setDirs] = useState([]), [hosts,setHosts] = useState('');
+    const [v,setV] = useState(null), [hosts,setHosts] = useState('');
     const [secrets,setSecrets] = useState({mteam_api_key:'',qbit_username:'',qbit_password:''});
     const [present,setPresent] = useState({}), [busy,setBusy] = useState(false), [message,setMessage] = useState('正在读取配置…');
     async function reload() {
       try {
         const d = await sdk.fetchJSON(base+'/settings');
-        setV(d.settings); setDirs(Object.entries(d.settings.destinations).map(([alias,path])=>({alias,path})));
+        setV(d.settings);
         setHosts(d.settings.download_hosts.join('\n')); setPresent(d.secrets_set); setMessage('');
       } catch (_) { setMessage('读取失败。请确认插件已启用、当前 Profile 正确，且 Hermes 为 v0.23.1 兼容版本。'); }
     }
@@ -29,14 +29,9 @@
     }
     async function save(e) {
       e.preventDefault(); if (busy) return;
-      const destinations = {};
-      for (const d of dirs) {
-        if (!d.alias || !d.path || Object.hasOwn(destinations,d.alias)) {setMessage('目录别名与路径不能为空，别名不能重复。');return;}
-        destinations[d.alias]=d.path;
-      }
       setBusy(true);setMessage('正在保存…');
       try {
-        await sdk.fetchJSON(base+'/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings:{...v,destinations,download_hosts:hosts.split(/[\n,]/).map(x=>x.trim()).filter(Boolean)},secrets})});
+        await sdk.fetchJSON(base+'/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings:{...v,download_hosts:hosts.split(/[\n,]/).map(x=>x.trim()).filter(Boolean)},secrets})});
         setSecrets({mteam_api_key:'',qbit_username:'',qbit_password:''});
         await reload(); setMessage('配置已保存。可以测试连接；新工具调用读取新配置。');
       } catch (_) {setMessage('保存失败。请检查地址、目录、有效期或管理权限；凭据可能已部分保存，刷新后检查。没有提交下载。');}
@@ -61,13 +56,9 @@
           h('label',{key,style:{display:'block',marginBottom:'16px'}},h('div',{style:{fontWeight:600}},label+(present[key]?'（已设置，留空保留）':'（尚未设置）')),
             h('input',{type:'password',autoComplete:'new-password',style:inputStyle,disabled:busy,value:secrets[key],placeholder:'填写新值以新增或替换，不会回显已有值',onChange:e=>setSecrets(old=>({...old,[key]:e.target.value}))}))),
         h('p',null,'更换服务地址后，已有凭据会用于新地址。保存前核实目标可信；密钥写入 Hermes 管理的凭据存储，不写进插件普通配置。'),
-        h('h2',null,'保存目录'),
-        h('p',null,'这里填 qBittorrent 容器内的路径，而不是 NAS 宿主机或 Hermes 容器路径。'),
-        ...dirs.map((d,i)=>h('div',{key:i,style:{display:'flex',gap:'10px',marginBottom:'10px'}},
-          h('input',{style:{...inputStyle,width:'30%'},'aria-label':'目录别名 '+(i+1),placeholder:'movies',value:d.alias,disabled:busy,onChange:e=>setDirs(old=>old.map((x,n)=>n===i?{...x,alias:e.target.value}:x))}),
-          h('input',{style:inputStyle,'aria-label':'保存路径 '+(i+1),placeholder:'/downloads/movies',value:d.path,disabled:busy,onChange:e=>setDirs(old=>old.map((x,n)=>n===i?{...x,path:e.target.value}:x))}),
-          h('button',{type:'button',style:btnStyle,disabled:busy||dirs.length===1,onClick:()=>setDirs(old=>old.filter((_,n)=>n!==i))},'删除'))),
-        h('button',{type:'button',style:btnStyle,disabled:busy||dirs.length>=40,onClick:()=>setDirs(old=>[...old,{alias:'',path:''}])},'添加目录'),
+        h('h2',null,'默认保存路径'),
+        field('default_save_path','默认保存路径','填写 qBittorrent 容器内绝对路径（如 /downloads），不是 NAS 宿主机或 Hermes 路径。对话中可指定其他绝对路径，不指定时使用此默认值。'),
+        h('p',null,'不限制根目录范围；请只授权可信用户添加任务。最终写入权限由 qBittorrent 的挂载和运行账户决定。'),
         h('div',{style:{marginTop:'20px'}},field('category','qBittorrent 类别','默认 hermes，提交时关闭自动 Torrent 管理以保留指定路径。')),
         h('label',{style:{display:'block',marginBottom:'20px'}},h('input',{type:'checkbox',checked:v.start_paused,disabled:busy,onChange:e=>change('start_paused',e.target.checked)}),' 添加后暂停（默认关闭；开启可用于首次验收）'),
         h('details',null,h('summary',null,'高级设置（接口差异与下载域名）'),

@@ -7,12 +7,12 @@ import os
 import re
 import tempfile
 from pathlib import Path, PurePosixPath
-from .core import PluginError, base_url, endpoint
+from .core import PluginError, base_url, endpoint, save_path, configured_default
 
 SECRET_FIELDS = {'mteam_api_key': 'MTEAM_API_KEY', 'qbit_username': 'QBIT_USERNAME', 'qbit_password': 'QBIT_PASSWORD'}
 DEFAULTS = {
     'mteam_url': 'https://api.m-team.cc', 'qbit_url': 'http://qbittorrent:8080',
-    'download_hosts': ['api.m-team.cc'], 'destinations': {'movies': '/downloads/movies', 'tv': '/downloads/tv'},
+    'download_hosts': ['api.m-team.cc'], 'default_save_path': '/downloads',
     'category': 'hermes', 'start_paused': False, 'approval_ttl_seconds': 900,
     'search_path': '/api/torrent/search', 'detail_path': '/api/torrent/detail',
     'download_path': '/api/torrent/genDlToken', 'detail_encoding': 'form',
@@ -44,11 +44,7 @@ def validate(values):
     if not isinstance(v['download_hosts'], list) or not 1 <= len(v['download_hosts']) <= 20 or not all(isinstance(h, str) and re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?', h) for h in v['download_hosts']):
         raise PluginError('下载域名需要精确域名列表，不带协议/路径/通配符。')
     v['download_hosts'] = [h.lower() for h in v['download_hosts']]
-    if not isinstance(v['destinations'], dict) or not 1 <= len(v['destinations']) <= 40:
-        raise PluginError('请设置 1–40 个保存目录。')
-    for alias, path in v['destinations'].items():
-        if not isinstance(alias, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,40}', alias) or not isinstance(path, str) or not path.startswith('/') or '..' in PurePosixPath(path).parts or any(c in path for c in '\r\n\0'):
-            raise PluginError('目录别名需字母/数字/下划线/横线；路径需 qBit 内绝对路径，不含 ..。')
+    v['default_save_path'] = save_path(v['default_save_path'])
     return v
 
 
@@ -60,7 +56,7 @@ def to_config(values, path):
                   'detail_encoding': v['detail_encoding'], 'detail_extra': {'origin': v['detail_origin']} if v['detail_origin'] else {},
                   'search_mode': v['search_mode']},
         'qbittorrent': {'base_url': v['qbit_url'], 'username_env': 'QBIT_USERNAME', 'password_env': 'QBIT_PASSWORD'},
-        'destinations': v['destinations'], 'category': v['category'], 'start_paused': v['start_paused'],
+        'default_save_path': v['default_save_path'], 'category': v['category'], 'start_paused': v['start_paused'],
         'approval_ttl_seconds': v['approval_ttl_seconds'], 'state_path': str(path.parent / 'state.sqlite3')
     }
 
@@ -74,8 +70,9 @@ def public_values(cfg):
                   search_mode=m.get('search_mode', 'normal'))
     for k in ('search_path', 'detail_path', 'download_path'):
         result[k] = m.get(k, DEFAULTS[k])
-    for k in ('destinations', 'category', 'start_paused', 'approval_ttl_seconds'):
+    for k in ('category', 'start_paused', 'approval_ttl_seconds'):
         result[k] = cfg.get(k, DEFAULTS[k])
+    result['default_save_path'] = configured_default(cfg)
     # Do not return entire config: legacy manually added unknown secrets stay private.
     return validate(result)
 
