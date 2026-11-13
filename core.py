@@ -5,6 +5,8 @@ import json
 import os
 import re
 import secrets
+import socket
+import ssl
 import sqlite3
 import time
 import urllib.error
@@ -18,17 +20,19 @@ class PluginError(Exception):
 
 
 class StageError(PluginError):
-    def __init__(self, stage, status=None, uncertain=False):
+    def __init__(self, stage, status=None, uncertain=False, reason=None):
         self.stage = stage
         self.http_status = status
         self.uncertain = uncertain
+        self.reason = reason
         message = 'Failed at ' + stage + (': HTTP ' + str(status) if status else '.')
+        if reason: message += ' Reason: ' + reason + '.'
         if uncertain: message += ' Submission outcome uncertain; check status. No automatic resend.'
         super().__init__(message)
 
     def diagnostics(self):
         return {'stage':self.stage, 'http_status':self.http_status,
-                'submission_outcome_uncertain':self.uncertain}
+                'submission_outcome_uncertain':self.uncertain, 'reason':self.reason}
 
 
 def stage_call(stage, fn, *args, **kwargs):
@@ -37,8 +41,9 @@ def stage_call(stage, fn, *args, **kwargs):
     except StageError:
         raise
     except Exception as error:
-        status = error.http_diagnostics['status'] if isinstance(error, ServiceHTTPError) else None
-        raise StageError(stage, status) from None
+        status = error.http_diagnostics['status'] if isinstance(error, ServiceHTTPError) else error.status if isinstance(error, TransportError) else None
+        reason = error.reason if isinstance(error, TransportError) else 'http_error' if isinstance(error, ServiceHTTPError) else 'unexpected_error'
+        raise StageError(stage, status, reason=reason) from None
 
 
 class ServiceHTTPError(PluginError):
@@ -100,9 +105,26 @@ class MTeamResponseError(PluginError):
                                      'code_type': typ, 'numeric_code': numeric if re.fullmatch(r'[0-9]{1,6}', numeric) else None}
 
 
+class TransportError(PluginError):
+    def __init__(self, reason, status=None):
+        self.reason, self.status = reason, status
+        super().__init__('Service transport failure: ' + reason + '; URL/details omitted.')
+
+
+def transport_reason(error):
+    reason = error.reason if isinstance(error, urllib.error.URLError) else error
+    if isinstance(reason, ssl.SSLCertVerificationError): return 'tls_certificate'
+    if isinstance(reason, ssl.SSLError): return 'tls_error'
+    if isinstance(reason, (TimeoutError, socket.timeout)): return 'timeout'
+    if isinstance(reason, socket.gaierror): return 'dns_error'
+    if isinstance(reason, ConnectionRefusedError): return 'connection_refused'
+    if isinstance(reason, (ConnectionResetError, BrokenPipeError)): return 'connection_reset'
+    return 'network_error'
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        raise PluginError('Redirect refused; verify configured service hostname.')
+        raise TransportError('redirect_refused', int(code))
 
 
 class HTTP:
@@ -118,12 +140,12 @@ class HTTP:
                 self.last_status = response.status
                 result = response.read(limit + 1)
                 if len(result) > limit:
-                    raise PluginError('Response exceeds size limit.')
+                    raise TransportError('response_too_large', self.last_status)
                 return result
         except urllib.error.HTTPError as e:
             raise ServiceHTTPError(e.code, e.headers) from None
-        except (urllib.error.URLError, TimeoutError, OSError):
-            raise PluginError('Service connection failed or timed out; credentials/URL omitted.') from None
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            raise TransportError(transport_reason(error)) from None
 
 
 def base_url(value, https=False):
@@ -500,7 +522,7 @@ class App:
             self.db.execute("UPDATE requests SET state='unknown' WHERE id=?", (request_id,))
             self.db.commit()
             if isinstance(error, StageError):
-                raise StageError(error.stage, error.http_status, uncertain=True) from None
+                raise StageError(error.stage, error.http_status, uncertain=True, reason=error.reason) from None
             raise StageError('qbit_add', uncertain=True) from None
         self.db.execute("UPDATE requests SET state='submitted' WHERE id=?", (request_id,))
         self.db.commit()
@@ -510,7 +532,7 @@ class App:
             # Add was acknowledged; keep submitted in DB and never advise resending.
             stage = error.stage if isinstance(error, StageError) else 'qbit_task_lookup'
             status = error.http_status if isinstance(error, StageError) else None
-            raise StageError(stage, status, uncertain=True) from None
+            raise StageError(stage, status, uncertain=True, reason=error.reason if isinstance(error, StageError) else 'unexpected_error') from None
         return {'state': 'present' if tasks else 'submitted_not_yet_visible', 'hash': digest, 'tasks': tasks}
 
     def status(self, request_id):

@@ -262,6 +262,40 @@ class Tests(unittest.TestCase):
         self.assertEqual(ctx.exception.stage,'qbit_task_lookup')
         self.assertEqual(self.app.row(rid)['state'],'submitted')
         self.assertEqual(len(self.q.calls),1)
+    def test_actual_transport_failure_diagnostics_are_safe(self):
+        from unittest.mock import MagicMock
+        from core import stage_call, NoRedirect, TransportError
+        import urllib.error, socket, ssl
+        cases=[(urllib.error.URLError(socket.gaierror('SECRET_HOST')),'dns_error'),
+               (urllib.error.URLError(ssl.SSLCertVerificationError('SECRET_CERT')),'tls_certificate'),
+               (urllib.error.URLError(ssl.SSLError('SECRET_TLS')),'tls_error'),
+               (TimeoutError('SECRET_URL'),'timeout'),
+               (ConnectionRefusedError('SECRET_IP'),'connection_refused'),
+               (ConnectionResetError('SECRET'),'connection_reset'),
+               (urllib.error.URLError('SECRET_PROXY'),'network_error')]
+        for exception,expected in cases:
+            http=HTTP();http.opener.open=MagicMock(side_effect=exception)
+            with self.assertRaises(StageError) as ctx:
+                stage_call('mteam_torrent_fetch',http.request,'GET','https://example.com/?token=SECRET')
+            self.assertEqual(ctx.exception.reason,expected)
+            self.assertIsNone(ctx.exception.http_status)
+            self.assertNotIn('SECRET',str(ctx.exception)+json.dumps(ctx.exception.diagnostics()))
+        with self.assertRaises(StageError) as ctx:
+            stage_call('mteam_torrent_fetch',NoRedirect().redirect_request,None,None,302,'SECRET',{},'https://evil/?token=SECRET')
+        self.assertEqual(ctx.exception.reason,'redirect_refused')
+        self.assertEqual(ctx.exception.http_status,302)
+        self.assertNotIn('SECRET',str(ctx.exception))
+    def test_response_size_failure_preserves_status_not_body(self):
+        from unittest.mock import MagicMock
+        from core import stage_call
+        response=MagicMock();response.status=200;response.read.return_value=b'SECRET'
+        response.__enter__.return_value=response
+        http=HTTP();http.opener.open=MagicMock(return_value=response)
+        with self.assertRaises(StageError) as ctx:
+            stage_call('mteam_torrent_fetch',http.request,'GET','https://example.com',limit=1)
+        self.assertEqual(ctx.exception.reason,'response_too_large')
+        self.assertEqual(ctx.exception.http_status,200)
+        self.assertNotIn('SECRET',str(ctx.exception))
     def test_bad_endpoint(self):
         for path in ['//evil/x','https://evil','/../x','/x?key=abc']:
             with self.assertRaises(PluginError):endpoint('https://example.com',path)
