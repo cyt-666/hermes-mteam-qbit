@@ -113,6 +113,11 @@ def probe(target):
 def probe_error(exc):
     # Only locally defined messages/codes reach the page. Never echo upstream bodies,
     # exception strings, URLs, or arbitrary PluginError text.
+    allowed_reasons = {'redirect_refused','dns_error','tls_certificate','tls_error','timeout',
+                       'connection_refused','connection_reset','network_error','response_too_large','http_error','unexpected_error'}
+    if isinstance(exc, (core.TransportError, core.StageError)) and exc.reason in allowed_reasons:
+        return {'ok':False, 'code':exc.reason,
+                'message':'连接失败：' + exc.reason + '。请核对网络、服务地址与证书；未返回敏感原文。'}
     text = str(exc)
     messages = {
         'response_shape': ('response_shape', '馒头返回 JSON，但顶层不是预期对象。未返回原始内容。'),

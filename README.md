@@ -15,7 +15,7 @@ Hermes 原生插件：搜索馒头资源、查看信息，并将用户明确选�
 - 注意：普通 Web Dashboard **不会自动渲染通用 config_schema**；Desktop 的表单不能替代 Web 验证。因此本插件实现了专用 Web 页面，不依赖该自动表单。
 - SDK 上游文档仍标 SPIKE：**不保证所有旧版或未来版本兼容**。如果使用别的版本，应核实后再部署。
 - 支持 qBittorrent 4.x / 5.x，分别使用 paused / stopped 字段。暂只支持 v1/混合种子，纯 v2 不支持；种子大小上限 8 MiB。
-- 已通过：63 项离线 Python 单元/API 测试、JS 语法检查；此前版本已通过 React + JSDOM 的页面渲染/默认路径编辑/保存请求/密码清空/测试按钮模拟检查。测试覆盖注册、配置校验/脱敏、profile 路径、凭据白名单、API 路由、请求确认、提交查重、超时防重投、qBit 版本参数。
+- 已通过：64 项离线 Python 单元/API 测试、JS 语法检查；此前版本已通过 React + JSDOM 的页面渲染/默认路径编辑/保存请求/密码清空/测试按钮模拟检查。测试覆盖注册、配置校验/脱敏、profile 路径、凭据白名单、API 路由、请求确认、提交查重、超时防重投、qBit 版本参数。
 - **尚未完成：用户的真实 Hermes 全进程加载、馒头账户和真实 qBittorrent 端到端联调。**当前执行环境阻止 Chromium 启动，因此未完成真实浏览器视觉验收。源码契约核实、JSDOM 和本地 mock 测试不能替代部署验收。
 
 ## 功能
@@ -333,4 +333,6 @@ UA全面回归覆盖实际urllib Request边界：profile、categoryList、search
 
 ## 0.4.5 传输失败分类
 修复非HTTP异常被统一折叠为HTTP null导致无法定位的问题。diagnostics.reason只返回固定枚举：redirect_refused、dns_error、tls_certificate、tls_error、timeout、connection_refused、connection_reset、network_error、response_too_large、http_error、unexpected_error。重定向拒绝保留301/302等状态，响应过大保留已有HTTP状态；网络失败确实没有HTTP状态时仍为null。不会输出URL、跳转目标、异常原文、证书内容或代理信息。
-这修复诊断丢失，不代表确认了用户网络故障根因。未盲目开启重定向、禁用TLS校验、修改代理或转发Key。63项离线测试通过，包括真实HTTP封装抛DNS/TLS/timeout/redirect/大小限制路径；未访问用户账号。
+这修复诊断丢失，不代表确认了用户网络故障根因。未盲目开启重定向、禁用TLS校验、修改代理或转发Key。64项离线测试通过，包括真实HTTP封装抛DNS/TLS/timeout/redirect/大小限制路径；未访问用户账号。
+
+额外隔离集成：使用本机临时HTTPS服务器、临时可信测试证书、合成无tracker种子和模拟M-Team/qBit接口，实际经过urllib/HTTP/TLS/cookie/multipart/SQLite完成prepare→add→查重，并验证真实302拒绝及403分阶段诊断。测试只连接loopback，测试URL定向适配仅存在测试文件。它不是官方测试服，也不是实际qBittorrent程序；当前环境无Docker/qbittorrent-nox，不能替代官方测试账号联调。测试需openssl。

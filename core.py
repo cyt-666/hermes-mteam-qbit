@@ -124,6 +124,7 @@ def transport_reason(error):
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if fp is not None: fp.close()
         raise TransportError('redirect_refused', int(code))
 
 
@@ -143,9 +144,11 @@ class HTTP:
                     raise TransportError('response_too_large', self.last_status)
                 return result
         except urllib.error.HTTPError as e:
-            raise ServiceHTTPError(e.code, e.headers) from None
+            error = ServiceHTTPError(e.code, e.headers)
+            e.close()
+            raise error from None
         except (urllib.error.URLError, TimeoutError, OSError) as error:
-            raise TransportError(transport_reason(error)) from None
+            raise TransportError(transport_reason(error), self.last_status) from None
 
 
 def base_url(value, https=False):
