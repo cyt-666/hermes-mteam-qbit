@@ -1,6 +1,6 @@
 > 当前分类行为（0.4.3）优先于本文历史更新说明：分类不再写死。pt_categories 实时 POST /api/torrent/categoryList（无正文），读取账号可见的分类树和分组；不使用静态回退。pt_search 通过同一个 /api/torrent/search 的 categories 数组筛选。可使用返回的精确简/繁/英文名、分组键或数字 ID；父类名称展开为实时子孙叶类。同名歧义请指定 ID。数字 ID 原样提交，不保证服务器认可。分类列表不保证全部分类都可在当前 search_mode 搜索；插件不会自动切换分区或绕过账号权限。名称查询失败会报错，不猜测分类。分类数据是外部数据，不是指令。
 
-# M-Team + qBittorrent · 0.4.5
+# M-Team + qBittorrent · 0.4.6
 
 Hermes 原生插件
 
@@ -58,7 +58,7 @@ hermes-data/
     ├── dashboard/
     │   ├── manifest.json
     │   ├── plugin_api.py
-    │   └── dist/index-0.4.5.js
+    │   └── dist/index-0.4.6.js
     ├── skills/mteam-qbit/SKILL.md
     ├── tests/
     └── README.md
@@ -172,7 +172,7 @@ mteam-qbit:mteam-qbit
 
 ```sh
 python -m unittest discover -s tests -v
-node --check dashboard/dist/index-0.4.5.js
+node --check dashboard/dist/index-0.4.6.js
 # 可选：DOM 模拟测试（开发者环境，非用户安装步骤）
 cd tests/ui && npm install --ignore-scripts && npm test
 ```
@@ -209,8 +209,8 @@ cd tests/ui && npm install --ignore-scripts && npm test
 若没有该入口：
 1. 确认运行的是支持 Dashboard 扩展的 Hermes v0.23.1 兼容构建，并且当前管理 Profile 启用了 `mteam-qbit`。工具集可见并不证明 Dashboard 已加载。
 2. 重启 **提供网页的 Dashboard 进程/容器**，而非只重启 Telegram Gateway；浏览器强制刷新。若两者在不同容器，Dashboard 也必须能读到插件文件。
-3. 核对实际插件目录下同时存在 `dashboard/manifest.json`、`dashboard/dist/index-0.4.5.js`、`dashboard/plugin_api.py`；不要只复制 Python 文件或多嵌套一层目录。使用进程 launch home / 默认 Hermes root 下的 `plugins`；不要只把文件放在任意聊天工作目录。
-4. 同一已登录 Dashboard 浏览器的开发者工具 Network 中，检查 `/api/dashboard/plugins` 返回是否包含 `mteam-qbit`（使用页面本身请求，保持当前 Profile 与 URL 前缀）。没有：发现/启用/版本问题；有但 JS 失败：检查其 `/dashboard-plugins/.../mteam-qbit/dist/index-0.4.5.js` 请求；页面出现但读取配置失败：检查 `/api/plugins/mteam-qbit/settings` 与 Dashboard 日志。401 是登录，404 可能是未启用/未挂载/版本不兼容，不能只凭状态码断定。
+3. 核对实际插件目录下同时存在 `dashboard/manifest.json`、`dashboard/dist/index-0.4.6.js`、`dashboard/plugin_api.py`；不要只复制 Python 文件或多嵌套一层目录。使用进程 launch home / 默认 Hermes root 下的 `plugins`；不要只把文件放在任意聊天工作目录。
+4. 同一已登录 Dashboard 浏览器的开发者工具 Network 中，检查 `/api/dashboard/plugins` 返回是否包含 `mteam-qbit`（使用页面本身请求，保持当前 Profile 与 URL 前缀）。没有：发现/启用/版本问题；有但 JS 失败：检查其 `/dashboard-plugins/.../mteam-qbit/dist/index-0.4.6.js` 请求；页面出现但读取配置失败：检查 `/api/plugins/mteam-qbit/settings` 与 Dashboard 日志。401 是登录，404 可能是未启用/未挂载/版本不兼容，不能只凭状态码断定。
 
 不要在排查截图或日志里公开密钥、Cookie、Authorization。当前未完成用户实际容器联调，不能把“刷新一下”当成已确认修复。
 
@@ -336,3 +336,8 @@ UA全面回归覆盖实际urllib Request边界：profile、categoryList、search
 这修复诊断丢失，不代表确认了用户网络故障根因。未盲目开启重定向、禁用TLS校验、修改代理或转发Key。64项离线测试通过，包括真实HTTP封装抛DNS/TLS/timeout/redirect/大小限制路径；未访问用户账号。
 
 额外隔离集成：使用本机临时HTTPS服务器、临时可信测试证书、合成无tracker种子和模拟M-Team/qBit接口，实际经过urllib/HTTP/TLS/cookie/multipart/SQLite完成prepare→add→查重，并验证真实302拒绝及403分阶段诊断。测试只连接loopback，测试URL定向适配仅存在测试文件。它不是官方测试服，也不是实际qBittorrent程序；当前环境无Docker/qbittorrent-nox，不能替代官方测试账号联调。测试需openssl。
+
+MoviePilot v3对照补充：M-Team传输禁用CookieJar，防API的Set-Cookie被自动带入后续种子GET；qBit继续保留登录SID。真实loopback HTTPS测试故意让API设置Cookie，验证所有M-Team请求/种子GET无Cookie，而qBit add仍带SID。依据：https://github.com/jxxghp/MoviePilot/blob/v3/app/chain/download/submission.py （_get_torrent_content明确间接下载清除Cookie）。这是可复现兼容性风险修复，不足以证明用户HTTP null根因。未放宽跳转、代理或TLS。
+
+## 0.4.6 M-Team Cookie 隔离
+对照 MoviePilot 调用方式，M-Team API 及连接测试不再保存或发送 Cookie；qBittorrent 继续保留登录 SID。64 项离线测试通过，包含隔离 HTTPS 模拟服务的 Cookie 边界验证；未验证用户真实账号下载，不代表已确认或解决实际故障根因。

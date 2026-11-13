@@ -129,9 +129,11 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class HTTP:
-    def __init__(self):
+    def __init__(self, cookies=True):
         self.last_status = None
-        self.opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        handlers = [NoRedirect()]
+        if cookies: handlers.append(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        self.opener = urllib.request.build_opener(*handlers)
 
     def request(self, method, url, headers=None, data=None, limit=4 * 1024 * 1024):
         self.last_status = None
@@ -446,7 +448,7 @@ class App:
     def __init__(self, cfg, mt=None, qb=None):
         self.cfg = cfg
         self.default_save_path = configured_default(cfg)
-        self.mt = mt or MTeam(cfg['mteam'], HTTP())
+        self.mt = mt or MTeam(cfg['mteam'], HTTP(cookies=False))
         self.qb = qb or QBit(cfg['qbittorrent'], HTTP())
         state = Path(cfg.get('state_path', '~/.hermes/mteam-qbit/state.sqlite3')).expanduser()
         state.parent.mkdir(mode=0o700, parents=True, exist_ok=True)

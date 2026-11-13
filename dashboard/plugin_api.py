@@ -71,7 +71,7 @@ def guarded(fn, *args):
 @router.get('/settings')
 def get_settings():
     return guarded(lambda: {'settings': settings.read_settings(), 'secrets_set': settings.secret_presence(),
-                            'backend_version': '0.4.5', 'business_build': BUSINESS_BUILD, 'compatibility': 'Hermes v0.23.1 Dashboard SDK 1.1.0; live deployment not certified'})
+                            'backend_version': '0.4.6', 'business_build': BUSINESS_BUILD, 'compatibility': 'Hermes v0.23.1 Dashboard SDK 1.1.0; live deployment not certified'})
 
 
 @router.put('/settings')
@@ -104,7 +104,7 @@ def probe(target):
             raise core.PluginError('qBittorrent 版本响应不在支持范围。')
         return {'ok': True, 'message': 'qBittorrent 登录成功，版本 ' + version + '。未添加任务；保存目录写权限尚未验证。'}
     if target == 'mteam':
-        mt = core.MTeam(cfg['mteam'], core.HTTP())
+        mt = core.MTeam(cfg['mteam'], core.HTTP(cookies=False))
         mt.test_connection()
         return {'ok': True, 'message': '馒头账户连接接口响应正常，未返回账户资料。此测试不验证搜索接口，未获取种子或提交任务。'}
     raise core.PluginError('未知测试目标。')

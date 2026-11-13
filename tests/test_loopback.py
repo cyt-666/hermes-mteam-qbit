@@ -31,8 +31,8 @@ class LoopbackTests(unittest.TestCase):
                 def handle_request(self):
                     body=self.rfile.read(int(self.headers.get('Content-Length','0')))
                     path=self.path.split('?')[0]
-                    seen.append((path,self.headers.get('User-Agent'),self.headers.get('x-api-key')))
-                    payload=b'';status=200;headers={}
+                    seen.append((path,self.headers.get('User-Agent'),self.headers.get('x-api-key'),self.headers.get('Cookie')))
+                    payload=b'';status=200;headers={'Set-Cookie':'SITE=must-not-leak; Path=/'} if path.startswith('/api/torrent/') else {}
                     if path=='/api/torrent/detail':payload=json.dumps({'code':0,'data':{'id':'1','name':'synthetic fixture'}}).encode()
                     elif path=='/api/torrent/genDlToken':payload=b'{"code":0,"data":"https://isolated.test/torrent?token=FAKE"}'
                     elif path=='/torrent':
@@ -57,19 +57,20 @@ class LoopbackTests(unittest.TestCase):
             worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
             base='https://localhost:'+str(server.server_port)
             class LocalHTTP(HTTP):
-                def __init__(self):
-                    super().__init__()
+                def __init__(self,cookies=True):
+                    super().__init__(cookies=cookies)
                     # Test-only local CA, TLS verification remains enabled.
-                    self.opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect(),
-                        urllib.request.HTTPSHandler(context=ssl.create_default_context(cafile=str(cert))),
-                        urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+                    handlers=[urllib.request.ProxyHandler({}),NoRedirect(),
+                        urllib.request.HTTPSHandler(context=ssl.create_default_context(cafile=str(cert)))]
+                    if cookies: handlers.append(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+                    self.opener=urllib.request.build_opener(*handlers)
                 def request(self,method,url,*args,**kwargs):
                     # Test-only routing of fake signed URL to our ephemeral HTTPS listener.
                     if url.startswith('https://isolated.test/'):url=base+url[len('https://isolated.test'):]
                     assert url.startswith(base+'/'), 'No external network allowed'
                     return super().request(method,url,*args,**kwargs)
             cfg={'default_save_path':'/test/path','state_path':tmp+'/state.db'}
-            app=App(cfg,MTeam({'base_url':base,'download_hosts':['isolated.test'],'user_agent':'Loopback-UA'},LocalHTTP()),
+            app=App(cfg,MTeam({'base_url':base,'download_hosts':['isolated.test'],'user_agent':'Loopback-UA'},LocalHTTP(cookies=False)),
                     QBit({'base_url':base},LocalHTTP()))
             try:
                 with patch.dict(os.environ,{'MTEAM_API_KEY':'fake-key','QBIT_USERNAME':'fake','QBIT_PASSWORD':'fake'}):
@@ -84,7 +85,9 @@ class LoopbackTests(unittest.TestCase):
                         self.assertEqual(error.exception.reason,reason)
                         self.assertEqual(error.exception.http_status,status)
                         self.assertNotIn('FAKE',str(error.exception))
-                    self.assertTrue(all(ua=='Loopback-UA' for path,ua,keyval in seen if path.startswith('/api/torrent/') or path=='/torrent'))
-                    self.assertTrue(all(keyval is None for path,ua,keyval in seen if path=='/torrent'))
+                    self.assertTrue(all(ua=='Loopback-UA' for path,ua,keyval,cookie in seen if path.startswith('/api/torrent/') or path=='/torrent'))
+                    self.assertTrue(all(keyval is None and cookie is None for path,ua,keyval,cookie in seen if path=='/torrent'))
+                    self.assertTrue(all(cookie is None for path,ua,keyval,cookie in seen if path.startswith('/api/torrent/')))
+                    self.assertTrue(any(cookie=='SID=synthetic' for path,ua,keyval,cookie in seen if path=='/api/v2/torrents/add'))
             finally:
                 app.db.close();server.shutdown();server.server_close();worker.join(timeout=2)
