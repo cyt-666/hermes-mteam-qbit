@@ -140,6 +140,81 @@ class Tests(unittest.TestCase):
         self.assertEqual(len(calls),1)
         self.assertEqual({x['state'] for x in results},{'resource_already_submitted','submitted_not_yet_visible'})
 
+    def test_list_all_tasks_readonly_pagination_and_projection(self):
+        import urllib.parse
+        raw=[{'hash':'A'*40,'name':'other tool task','state':'downloading','save_path':'/downloads',
+              'category':'manual','progress':0.5,'size':123,'dlspeed':True,'eta':float('inf'),
+              'uploaded':10**500,'magnet_uri':'SECRET','tracker':'SECRET','unknown':{'password':'SECRET'}},
+             {'hash':'bad','name':'password="secret words"','save_path':'magnet:?xt=SECRET',
+              'category':{'secret':'SECRET'},'state':'https://x.test/?token=SECRET','progress':2,'size':float('nan')}, {'name':'extra'}]
+        http=FakeHTTP([json.dumps(raw).encode()]); qb=QBit({'base_url':'http://example.com'},http)
+        result=qb.list_tasks(2,2)
+        self.assertTrue(result['has_more']);self.assertEqual(result['next_page'],3)
+        self.assertIsNone(result['total']);self.assertEqual(len(result['items']),2)
+        self.assertEqual(result['items'][0]['hash'],'a'*40)
+        self.assertEqual(result['items'][0]['name'],'other tool task')
+        self.assertIsNone(result['items'][1]['progress']);self.assertIsNone(result['items'][1]['size']);
+        self.assertIsNone(result['items'][0]['eta']);self.assertIsNone(result['items'][0]['uploaded'])
+        self.assertIsNone(result['items'][0]['dlspeed']);self.assertNotIn('SECRET',json.dumps(result))
+        self.assertNotIn('secret words',json.dumps(result))
+        call=http.calls[0][0]
+        self.assertEqual(call[0],'GET')
+        query=urllib.parse.parse_qs(urllib.parse.urlsplit(call[1]).query)
+        self.assertEqual(query,{'sort':['added_on'],'reverse':['true'],'offset':['2'],'limit':['3']})
+        self.assertEqual(len(http.calls),1)
+
+    def test_list_tasks_validation_and_empty_page(self):
+        http=FakeHTTP([b'[]']); qb=QBit({'base_url':'http://example.com'},http)
+        for page,limit in [(0,20),(1001,20),(True,20),(1,0),(1,101),(1,False),(1,'20')]:
+            with self.assertRaises(PluginError):qb.list_tasks(page,limit)
+        self.assertFalse(http.calls)
+        result=qb.list_tasks(1000,100)
+        self.assertFalse(result['has_more']);self.assertIsNone(result['next_page'])
+        self.assertEqual(result['previous_page'],999)
+        with patch.object(self.q,'login') as login:
+            with self.assertRaises(PluginError):self.app.list_tasks(0)
+            login.assert_not_called()
+        self.q.list_tasks=lambda page,limit:{'page':page,'limit':limit}
+        self.assertEqual(self.app.list_tasks(2,30),{'page':2,'limit':30})
+
+    def test_delete_requires_exact_selection_and_file_confirmation(self):
+        from unittest.mock import Mock
+        self.q.delete=Mock()
+        for digest in ['all','a'*40+'|'+'b'*40,'bad']:
+            with self.assertRaises(PluginError):self.app.delete_task(digest,True)
+        with self.assertRaises(PluginError):self.app.delete_task('a'*40)
+        with self.assertRaises(PluginError):self.app.delete_task('a'*40,True,True)
+        self.q.delete.assert_not_called()
+        self.assertEqual(self.app.delete_task('A'*40,True)['state'],'not_deleted')
+        self.q.delete.assert_not_called()
+
+    def test_delete_modes_pending_and_uncertain(self):
+        for files in (False,True):
+            task={'hash':'a'*40,'name':'fixture'}
+            self.q.tasks=[task]
+            calls=[]
+            def delete(digest,remove_files):calls.append((digest,remove_files));self.q.tasks=[]
+            self.q.delete=delete
+            result=self.app.delete_task('a'*40,True,files,files)
+            self.assertEqual(result['state'],'deleted');self.assertEqual(calls,[('a'*40,files)])
+            self.assertEqual(self.app.delete_task('a'*40,True,files,files)['state'],'not_deleted')
+            self.assertEqual(len(calls),1)
+        self.q.tasks=[task];self.q.delete=lambda *args:None
+        self.assertEqual(self.app.delete_task('a'*40,True)['state'],'deletion_pending')
+        def fail(*args):raise StageError('qbit_delete',403)
+        self.q.delete=fail
+        with self.assertRaises(StageError) as ctx:self.app.delete_task('a'*40,True)
+        self.assertTrue(ctx.exception.uncertain)
+
+    def test_qbit_delete_form_exact_hash_and_no_extra_fields(self):
+        import urllib.parse
+        for files in (False,True):
+            http=FakeHTTP([b'']);qb=QBit({'base_url':'http://example.com'},http)
+            qb.delete('b'*64,files)
+            args=http.calls[0][0]
+            self.assertEqual(args[0],'POST');self.assertTrue(args[1].endswith('/torrents/delete'))
+            self.assertEqual(urllib.parse.parse_qs(args[3].decode()),{'hashes':['b'*64],'deleteFiles':[str(files).lower()]})
+
     def test_expiry(self):
         rid=self.prepared()
         with patch('core.time.time',return_value=1e12):
@@ -466,11 +541,17 @@ class Tests(unittest.TestCase):
             def register_tool(self,**kwargs):self.tools.append(kwargs)
             def register_skill(self,**kwargs):self.skill=kwargs
         ctx=Context();plugin.register(ctx)
-        self.assertEqual(len(ctx.tools),7)
+        self.assertEqual(len(ctx.tools),9)
         self.assertTrue(ctx.skill["path"].is_file())
         self.assertTrue(all(callable(x['handler']) for x in ctx.tools))
         schema=next(x['schema'] for x in ctx.tools if x['name']=='pt_prepare_download')
         self.assertEqual(schema['parameters']['required'],['resource_id'])
         self.assertIn('save_path',schema['parameters']['properties'])
+        listing=next(x['schema'] for x in ctx.tools if x['name']=='pt_list_downloads')
+        self.assertEqual(listing['parameters']['properties']['limit']['maximum'],100)
+        with patch.object(plugin,'load_app',return_value=self.app):
+            with patch.object(self.app,'list_tasks',return_value={'items':[]}) as call:
+                response=plugin.invoke('pt_list_downloads',{'page':2,'limit':30})
+                call.assert_called_once_with(2,30)
 
 if __name__=='__main__':unittest.main()

@@ -71,7 +71,7 @@ def guarded(fn, *args):
 @router.get('/settings')
 def get_settings():
     return guarded(lambda: {'settings': settings.read_settings(), 'secrets_set': settings.secret_presence(),
-                            'backend_version': '0.5.0', 'business_build': BUSINESS_BUILD, 'compatibility': 'Hermes v0.23.1 Dashboard SDK 1.1.0; live deployment not certified'})
+                            'backend_version': '0.5.1', 'business_build': BUSINESS_BUILD, 'compatibility': 'Hermes v0.23.1 Dashboard SDK 1.1.0; live deployment not certified'})
 
 
 @router.put('/settings')

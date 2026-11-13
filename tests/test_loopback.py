@@ -24,7 +24,7 @@ class LoopbackTests(unittest.TestCase):
             subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes',
                 '-keyout',str(key),'-out',str(cert),'-days','1','-subj','/CN=localhost',
                 '-addext','subjectAltName=DNS:localhost'],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-            seen=[]; state={'added':False,'fetch':'ok','adds':0,'tags':''}
+            seen=[]; state={'added':False,'fetch':'ok','adds':0,'tags':'','deletes':[]}
             class Handler(BaseHTTPRequestHandler):
                 def log_message(self,*args):pass
                 def do_GET(self):self.handle_request()
@@ -43,8 +43,14 @@ class LoopbackTests(unittest.TestCase):
                         else:payload=TORRENT
                     elif path=='/api/v2/auth/login':payload=b'Ok.';headers['Set-Cookie']='SID=synthetic; Path=/'
                     elif path=='/api/v2/app/version':payload=b'v5.1.0'
+                    elif path=='/api/v2/torrents/info' and 'sort=added_on' in self.path:
+                        payload=json.dumps([{'hash':'c'*40,'name':'external task','save_path':'/elsewhere','magnet_uri':'DO-NOT-EXPOSE','progress':0.2}]).encode()
                     elif path=='/api/v2/torrents/info':
                         payload=json.dumps([{'hash':torrent_hash(TORRENT),'name':'synthetic','save_path':'/test/path','tags':state['tags']}] if state['added'] else []).encode()
+                    elif path=='/api/v2/torrents/delete':
+                        form=urllib.parse.parse_qs(body.decode())
+                        if form.get('hashes') != [torrent_hash(TORRENT)] or form.get('deleteFiles') not in (['true'],['false']):status=400
+                        else:state['deletes'].append(form['deleteFiles'][0]);state['added']=False
                     elif path=='/api/v2/torrents/add':
                         form=urllib.parse.parse_qs(body.decode())
                         if form.get('urls')!=['https://isolated.test/torrent?token=FAKE'] or form.get('savepath')!=['/test/path'] or form.get('stopped')!=['false']:status=400
@@ -76,6 +82,13 @@ class LoopbackTests(unittest.TestCase):
                     QBit({'base_url':base},LocalHTTP()))
             try:
                 with patch.dict(os.environ,{'MTEAM_API_KEY':'fake-key','QBIT_USERNAME':'fake','QBIT_PASSWORD':'fake'}):
+                    before=len(seen)
+                    listing=app.list_tasks(1,20)
+                    self.assertEqual(listing['items'][0]['name'],'external task')
+                    self.assertNotIn('DO-NOT-EXPOSE',json.dumps(listing))
+                    self.assertFalse(listing['has_more'])
+                    self.assertEqual([entry[0] for entry in seen[before:]],['/api/v2/auth/login','/api/v2/torrents/info'])
+                    self.assertEqual(state['adds'],0);self.assertEqual(server.fetches,0)
                     request=app.prepare('1')
                     result=app.submit(request['request_id'],True)
                     self.assertEqual(result['state'],'present');self.assertEqual(state['adds'],1)
@@ -93,5 +106,13 @@ class LoopbackTests(unittest.TestCase):
                     self.assertTrue(all(keyval is None and cookie is None for path,ua,keyval,cookie in seen if path=='/torrent'))
                     self.assertTrue(all(cookie is None for path,ua,keyval,cookie in seen if path.startswith('/api/torrent/')))
                     self.assertTrue(any(cookie=='SID=synthetic' for path,ua,keyval,cookie in seen if path=='/api/v2/torrents/add'))
+                    for remove_files in (False,True):
+                        state['added']=True  # Synthetic task only; no real downloader or files.
+                        deleted=app.delete_task(torrent_hash(TORRENT),True,remove_files,remove_files)
+                        self.assertEqual(deleted['state'],'deleted')
+                        self.assertEqual(app.row(request['request_id'])['state'],'submitted')
+                    self.assertEqual(state['deletes'],['false','true'])
+                    self.assertEqual(app.submit(request['request_id'])['state'],'unknown')
+                    self.assertEqual(state['adds'],1)
             finally:
                 app.db.close();server.shutdown();server.server_close();worker.join(timeout=2)

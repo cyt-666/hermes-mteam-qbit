@@ -2,6 +2,7 @@
 import hashlib
 import http.cookiejar
 import json
+import math
 import os
 import re
 import secrets
@@ -420,12 +421,55 @@ class QBit:
             raise PluginError('qBittorrent login failed.')
 
     def info(self, digest):
-        if not re.fullmatch('[a-f0-9]{40}', digest):
+        if not re.fullmatch(r'(?:[a-f0-9]{40}|[a-f0-9]{64})', digest):
             raise PluginError('Invalid torrent hash.')
         result = decode_json(stage_call('qbit_task_lookup', self.call, 'torrents/info?hashes=' + digest))
         if not isinstance(result, list):
             raise PluginError('Unexpected qBittorrent info schema.')
-        return [{k: item.get(k) for k in ('hash', 'name', 'state', 'progress', 'dlspeed', 'eta', 'save_path')} for item in result]
+        return [{k: item.get(k) for k in ('hash', 'name', 'state', 'progress', 'dlspeed', 'eta', 'save_path')} for item in result if isinstance(item, dict) and item.get('hash') == digest]
+
+    def delete(self, digest, delete_files=False):
+        if not isinstance(digest, str) or not re.fullmatch(r'(?:[a-f0-9]{40}|[a-f0-9]{64})', digest):
+            raise PluginError('One exact torrent hash is required.')
+        if type(delete_files) is not bool:
+            raise PluginError('delete_files must be boolean.')
+        data = urllib.parse.urlencode({'hashes':digest,'deleteFiles':str(delete_files).lower()}).encode()
+        stage_call('qbit_delete', self.call, 'torrents/delete', data)
+
+    def list_tasks(self, page=1, limit=20):
+        if type(page) is not int or not 1 <= page <= 1000 or type(limit) is not int or not 1 <= limit <= 100:
+            raise PluginError('page must be 1–1000 and limit must be 1–100.')
+        query = urllib.parse.urlencode({'sort': 'added_on', 'reverse': 'true',
+                                       'offset': (page - 1) * limit, 'limit': limit + 1})
+        result = decode_json(stage_call('qbit_task_lookup', self.call, 'torrents/info?' + query))
+        if not isinstance(result, list):
+            raise PluginError('Unexpected qBittorrent info schema.')
+        def text(value):
+            if not isinstance(value, str): return None
+            # Task names/paths are untrusted. Do not echo embedded URLs, magnets or credential assignments.
+            value = re.sub(r'(?i)(?:[a-z][a-z0-9+.-]*://|magnet:)[^\s<>"\']+', '[URL REDACTED]', value)
+            value = sanitized_upstream_message({'message': value})
+            return re.sub(r'(?i)(?:[a-z][a-z0-9+.-]*://|magnet:)[^\s<>"\']+', '[URL REDACTED]', value) if value else value
+        def number(value):
+            return value if type(value) in (int, float) and 0 <= value <= 1e18 and math.isfinite(value) else None
+        items = []
+        for item in result[:limit]:
+            if not isinstance(item, dict): continue
+            digest = item.get('hash')
+            digest = digest.lower() if isinstance(digest, str) and re.fullmatch(r'[a-fA-F0-9]{40}|[a-fA-F0-9]{64}', digest) else None
+            projected = {'hash': digest}
+            for key in ('name', 'state', 'save_path', 'category'):
+                projected[key] = text(item.get(key))
+            for key in ('progress', 'size', 'total_size', 'downloaded', 'uploaded', 'dlspeed', 'upspeed', 'eta', 'added_on'):
+                projected[key] = number(item.get(key))
+            if projected['progress'] is not None and projected['progress'] > 1:
+                projected['progress'] = None
+            items.append(projected)
+        has_more = len(result) > limit
+        return {'items': items, 'page': page, 'limit': limit, 'has_more': has_more,
+                'next_page': page + 1 if has_more and page < 1000 else None,
+                'previous_page': page - 1 if page > 1 else None,
+                'page_limit_reached': page == 1000, 'total': None}
 
     def info_tag(self, tag):
         if not re.fullmatch(r'mteam-qbit-(?:r[0-9]+|[a-f0-9]{32})', tag):
@@ -489,6 +533,44 @@ class App:
         os.chmod(state, 0o600)
         self.db.execute('CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, rid TEXT, title TEXT, destination TEXT, path TEXT, created REAL, state TEXT, hash TEXT, paused INTEGER, category TEXT)')
         self.db.commit()
+
+    def list_tasks(self, page=1, limit=20):
+        # Validate before even authenticating; this operation never submits or deletes tasks.
+        if type(page) is not int or not 1 <= page <= 1000 or type(limit) is not int or not 1 <= limit <= 100:
+            raise PluginError('page must be 1–1000 and limit must be 1–100.')
+        self.qb.login()
+        return self.qb.list_tasks(page, limit)
+
+    def delete_task(self, digest, user_confirmed=False, delete_files=False, delete_files_confirmed=False):
+        if isinstance(digest, str): digest = digest.lower()
+        if not isinstance(digest, str) or not re.fullmatch(r'(?:[a-f0-9]{40}|[a-f0-9]{64})', digest):
+            raise PluginError('One exact torrent hash is required; all and multiple hashes are forbidden.')
+        if user_confirmed is not True:
+            raise PluginError('Explicit user confirmation of this exact task is required.')
+        if type(delete_files) is not bool:
+            raise PluginError('delete_files must be boolean.')
+        if delete_files and delete_files_confirmed is not True:
+            raise PluginError('Deleting files may be irreversible; explicit confirmation of permanent file deletion is required.')
+        self.qb.login()
+        tasks = self.qb.info(digest)
+        matches = [task for task in tasks if isinstance(task, dict) and task.get('hash') == digest]
+        if len(matches) != 1:
+            return {'state': 'not_deleted', 'hash': digest, 'note': 'Expected exactly one matching task; no deletion sent.'}
+        try:
+            self.qb.delete(digest, delete_files)
+        except Exception as error:
+            raise StageError('qbit_delete', getattr(error, 'http_status', None), uncertain=True,
+                             reason=getattr(error, 'reason', 'unexpected_error')) from None
+        # Keep existing submission reservations: deleting is not permission to automatically resubmit.
+        try:
+            remaining = self.qb.info(digest)
+        except Exception as error:
+            raise StageError('qbit_delete_verification', getattr(error, 'http_status', None), uncertain=True,
+                             reason=getattr(error, 'reason', 'unexpected_error')) from None
+        remaining = [task for task in remaining if isinstance(task, dict) and task.get('hash') == digest]
+        return {'state': 'deleted' if not remaining else 'deletion_pending', 'hash': digest,
+                'delete_files_requested': delete_files,
+                'note': 'Task absence does not verify physical file erasure. Do not automatically retry deletion.'}
 
     def prepare(self, rid, path=None):
         resolved = self.default_save_path if path is None else save_path(path)

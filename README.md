@@ -1,12 +1,14 @@
 # M-Team + qBittorrent
 
-Hermes 原生插件，支持搜索馒头资源、查看详情，并将明确选择的种子提交到 qBittorrent。当前版本：**0.5.0**。
+Hermes 原生插件，支持搜索馒头资源、查看详情，并将明确选择的种子提交到 qBittorrent。当前版本：**0.5.1**。
 
 站点、下载器、凭据和默认保存路径均通过 Hermes Web Dashboard 配置。插件内附 Skill，无需单独安装。
 
 ## 功能
 
 - 关键词搜索、实时分类筛选、分页和资源详情。
+- 分页浏览配置的 qBittorrent 中全部任务，包括其他工具添加的任务，只读显示状态与进度。
+- 经明确授权后按完整 hash 删除单个任务，默认保留文件；删除文件需另行确认不可恢复风险。
 - 从站点读取分类名称、ID、父子关系及支持的分组，不使用硬编码分类 ID。
 - 生成站点下载 URL 并直接提交给 qBittorrent，由下载器获取种子；不向模型返回带凭据的链接。
 - 配置单一默认保存路径，下载时可指定其他绝对路径。
@@ -40,7 +42,7 @@ Hermes 原生插件，支持搜索馒头资源、查看详情，并将明确选�
 ├── dashboard/
 │   ├── manifest.json
 │   ├── plugin_api.py
-│   └── dist/index-0.5.0.js
+│   └── dist/index-0.5.1.js
 └── skills/mteam-qbit/SKILL.md
 ```
 
@@ -134,17 +136,33 @@ Dashboard 可独立管理时，只需重启相应进程，不要求重启整个�
 | `pt_prepare_download` | resource_id 与可选 save_path，生成请求摘要和 request_id |
 | `pt_add_download` | request_id 与 user_confirmed，提交已获授权的请求 |
 | `pt_download_status` | 查询准备/提交请求状态 |
+| `pt_delete_download` | 精确 hash 删除单个任务，默认保留文件；删除文件需单独明确确认 |
+| `pt_list_downloads` | 分页浏览 qBittorrent 全部任务，page 默认 1，limit 默认 20、最大 100 |
 
 `present` 表示任务已可见，不表示文件下载完成；`submitted_not_yet_visible` 表示已应答但尚未查到任务；`unknown` 表示结果不确定，应先在 qBittorrent 核对，不能自动重投。`resource_already_submitted` 返回原 request_id，应查询原请求；`failed_before_submission` 表示尚未尝试向下载器提交，可重新准备。
 
 URL 提交是异步操作：下载器接收请求不代表已获取种子或开始下载，应通过任务标签继续查询。签名链接在提交时生成，不持久化到插件数据库；链接失效或下载器网络失败时，不会自动刷新链接重投。已提交或结果不确定的同资源请求会阻止再次提交，需先人工核对下载器。此保护也会阻止删除下载器任务后自动重加同一资源；当前没有清除该提交记录的工具，不要直接删除数据库绕过保护。
+
+### 查看下载器全部任务
+
+可说“查看 qBittorrent 所有任务，每页 20 条”“下一页”。此列表不局限于本插件添加的任务，按添加时间倒序分页，提供任务状态、进度等必要信息，不返回 tracker、磁力链接或完整原始响应。列表变化时分页可能重复或遗漏，应刷新后再核对；没有可靠总数时不虚构总数。
+
+查看任务不会更改下载器队列。插件不提供暂停、恢复或移动已有任务的工具。
+
+### 删除任务
+
+先列出任务并核对名称、完整 hash、保存路径，再明确要求删除某一个任务。默认只删除任务，保留文件。需要同时删除文件时，必须在执行前明确确认具体任务、文件及可能不可恢复的后果；不能把“删除任务”解释为“删除文件”。
+
+`pt_delete_download` 接收 `torrent_hash`、`user_confirmed`，以及默认 false 的 `delete_files` 和 `delete_files_confirmed`。两个确认字段必须反映真实用户确认，不得由模型自行补全。一次仅允许一个完整 40/64 位 hash，不支持 all 或批量。删除请求由 qBittorrent 执行，插件不在宿主机删除文件。
+
+删除后的状态核查只验证任务是否消失，不证明文件是否已彻底清除。网络失败或未确认消失时不要盲目重试，应先查询下载器。删除任务不会清除插件已有提交记录或自动解除防重投保护。
 
 ## 安全与数据存储
 
 - 普通配置保存在当前 profile 的 `mteam-qbit/config.json`，原子替换并使用 0600 权限；状态保存在同目录 SQLite。
 - API Key、用户名和密码通过 Hermes 原生凭据接口保存，不写入普通配置 JSON，也不回传模型。文件权限和不回显不等于静态加密。
 - API 使用 Hermes 宿主认证和 profile 范围，不单独开放端口。外部环境或托管凭据来源可能影响最终生效值，应避免重复配置冲突。
-- `user_confirmed` 是模型声明，不是独立、不可绕过的审批系统。插件没有额外的分渠道/分用户授权；只向可信用户开放提交工具。
+- `user_confirmed` / `delete_files_confirmed` 是模型声明，不是独立、不可绕过的审批系统。插件没有额外的分渠道/分用户授权；只向可信用户开放提交工具。
 - 下载目录安全边界由 qBittorrent 的挂载范围和运行用户权限决定。避免特权容器及不必要的可写挂载。
 - 签名 URL 本身具有访问权限，会发送到配置的 qBittorrent；下载器自身日志可能记录完整 URL，应限制其日志访问，不要公开分享。
 - 种子提交后可能下载和做种。资源确认绑定 ID、标题和路径，需信任站点在准备与提交间不替换内容。
@@ -166,14 +184,14 @@ hermes plugins disable mteam-qbit
 
 ```sh
 python -m unittest discover -s tests -v
-node --check dashboard/dist/index-0.5.0.js
+node --check dashboard/dist/index-0.5.1.js
 # 可选前端 DOM 模拟测试
 cd tests/ui && npm install --ignore-scripts && npm test
 ```
 
 API 测试使用 fastapi/httpx；隔离 HTTPS 集成测试需要 openssl。前端测试依赖位于 `tests/ui/package.json`。
 
-当前版本通过 71 项 Python 测试及 JavaScript 语法检查。测试覆盖本机隔离 HTTPS 模拟服务、Cookie 隔离、URL 表单提交、异步标签查询、查重和错误分阶段诊断，并验证 Hermes 不获取种子文件。模拟服务不是实际 M-Team 或 qBittorrent，不能替代真实环境端到端验证。此前版本通过 DOM 模拟测试，当前版本未重新执行该项。
+当前版本通过 76 项 Python 测试及 JavaScript 语法检查。测试覆盖本机隔离 HTTPS 模拟服务、Cookie 隔离、URL 提交、异步标签查询、分页列表、两种删除模式和错误诊断；删除测试仅针对模拟服务。模拟服务不是实际 M-Team 或 qBittorrent，不能替代真实环境端到端验证。此前版本通过 DOM 模拟测试，当前版本未重新执行该项。
 
 `.gitignore` 排除配置、env、SQLite、种子和缓存，不能清理已提交到历史的秘密。项目当前未指定开源许可证。
 

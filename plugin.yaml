@@ -1,7 +1,9 @@
 name: mteam-qbit
-version: "0.5.0"
+version: "0.5.1"
 description: M-Team search and explicitly approved qBittorrent submissions
 provides_tools:
+  - pt_delete_download
+  - pt_list_downloads
   - pt_categories
   - pt_search
   - pt_details
