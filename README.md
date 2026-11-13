@@ -1,6 +1,6 @@
 # M-Team + qBittorrent
 
-Hermes 原生插件，支持搜索馒头资源、查看详情，并将明确选择的种子提交到 qBittorrent。当前版本：**0.4.6**。
+Hermes 原生插件，支持搜索馒头资源、查看详情，并将明确选择的种子提交到 qBittorrent。当前版本：**0.5.0**。
 
 站点、下载器、凭据和默认保存路径均通过 Hermes Web Dashboard 配置。插件内附 Skill，无需单独安装。
 
@@ -8,9 +8,9 @@ Hermes 原生插件，支持搜索馒头资源、查看详情，并将明确选�
 
 - 关键词搜索、实时分类筛选、分页和资源详情。
 - 从站点读取分类名称、ID、父子关系及支持的分组，不使用硬编码分类 ID。
-- 内部获取种子并上传到 qBittorrent，不向模型返回带凭据的下载链接。
+- 生成站点下载 URL 并直接提交给 qBittorrent，由下载器获取种子；不向模型返回带凭据的链接。
 - 配置单一默认保存路径，下载时可指定其他绝对路径。
-- 按 info-hash 查重，不移动或重启已有任务；提交结果不确定时不自动重复提交。
+- 通过资源/请求标签关联任务并避免重复提交；已识别的任务不移动或重启，结果不确定时不自动重投。
 - 支持添加后开始下载或保持暂停。
 - 网页连接测试、版本检查及脱敏诊断。
 
@@ -20,7 +20,7 @@ Hermes 原生插件，支持搜索馒头资源、查看详情，并将明确选�
 
 - Hermes 集成基线：**v0.23.1**，Web Dashboard SDK **1.1.0**。其他版本需验证插件及 Dashboard 扩展接口兼容性。
 - qBittorrent **4.x / 5.x**，需启用 WebUI。
-- 支持 v1 / 混合种子，暂不支持纯 v2；种子文件上限 8 MiB。
+- 种子解析、格式支持和获取限制由 qBittorrent 决定，Hermes 不再预先获取种子文件。
 - 插件核心使用 Python 标准库，Web API 使用 Hermes 提供的 FastAPI，前端使用宿主 React，无需单独构建前端。
 
 ## 安装
@@ -40,7 +40,7 @@ Hermes 原生插件，支持搜索馒头资源、查看详情，并将明确选�
 ├── dashboard/
 │   ├── manifest.json
 │   ├── plugin_api.py
-│   └── dist/index-0.4.6.js
+│   └── dist/index-0.5.0.js
 └── skills/mteam-qbit/SKILL.md
 ```
 
@@ -90,7 +90,7 @@ Dashboard 可独立管理时，只需重启相应进程，不要求重启整个�
 
 网页支持配置下载域名白名单、搜索模式、搜索/详情/下载令牌端点、详情 form/JSON 编码、origin，以及准备请求有效期（默认 900 秒，范围 60–86400 秒）。
 
-下载域名须为精确可信主机名，不含协议、路径或通配符。种子 URL 仅允许 HTTPS/443，不跟随重定向。M-Team 请求均使用配置的 User-Agent，不保存或发送 Cookie；API Key 不转发至种子 URL。qBittorrent 单独保留登录 Cookie。
+下载域名须为精确可信主机名，不含协议、路径或通配符。提交的种子 URL 仅允许 HTTPS/443。Hermes API 请求不跟随重定向；提交后的取种、跳转及网络策略由 qBittorrent 控制。Hermes 发往 M-Team 的 API 请求使用配置的 User-Agent，不保存或发送 Cookie；API Key 不转发至种子 URL。qBittorrent 使用自己的取种请求头和网络/代理配置，不继承插件 User-Agent。qBittorrent 单独保留登录 Cookie。
 
 ## 使用方法
 
@@ -107,7 +107,7 @@ Dashboard 可独立管理时，只需重启相应进程，不要求重启整个�
 
 分类名称须匹配实时返回的简体、繁体或英文名称，也支持分组键及数字 ID。父类名称展开为实时子孙叶类；同名分类需指定 ID。数字 ID 原样提交，不保证服务器接受。分类目录受账户可见性影响，也不保证所有分类都可在当前 `search_mode` 搜索，插件不会自动切换分区。
 
-分页从 1 开始，最多 1000 页，每页 1–50 条。下一页保持关键词、筛选和页大小，改变关键词或筛选时从第一页开始。非空 `category_ids` 可原样回传；返回 `category_ids=[]` 表示全部分类，下一页应省略该参数并使用 `category=all`。站点未提供可靠总量时，不根据短页猜测是否结束。
+分页从 1 开始，最多 1000 页，每页 1–50 条。下一页保持关键词、筛选和页大小，改变关键词或筛选时从第一页开始。非空 `category_ids` 可原样回传；返回 `category_ids=[]` 表示全部分类，下一页应省略该参数并使用 `category=all`。返回结果包含安全提取的 `category_id`。分页优先使用服务端实际 `pageSize` 计算后续页，保留请求的 `requested_limit`，下一页继续传 `requested_limit`，不要把服务端实际 `limit` 回填为请求参数；站点未提供可靠总量时，不根据短页猜测是否结束。
 
 ### 提交下载
 
@@ -121,7 +121,7 @@ Dashboard 可独立管理时，只需重启相应进程，不要求重启整个�
 
 **保存路径属于 qBittorrent 所在环境。**容器部署填写 qBittorrent 容器内路径，不是宿主机路径或 Hermes 容器路径。省略路径使用网页默认值；可指定其他绝对 POSIX 路径，不实施根目录白名单。路径只做格式校验，不验证存在性、可写性或符号链接目标。
 
-准备完成后修改网页默认值不会改变该请求的路径；需要改变路径应重新准备。同一 hash 已存在时保留原任务路径和状态，不移动、不重启。
+准备完成后修改网页默认值不会改变该请求的路径；需要改变路径应重新准备。发现已有插件资源标签任务时保留原任务路径和状态，不移动、不重启。插件不预先获取种子，无法提前计算 info-hash；未带插件标签的既有任务只能依赖 qBittorrent 自身去重，不保证插件可以提前识别。
 
 ### 工具一览
 
@@ -135,7 +135,9 @@ Dashboard 可独立管理时，只需重启相应进程，不要求重启整个�
 | `pt_add_download` | request_id 与 user_confirmed，提交已获授权的请求 |
 | `pt_download_status` | 查询准备/提交请求状态 |
 
-`present` 表示任务已可见，不表示文件下载完成；`submitted_not_yet_visible` 表示已应答但尚未查到任务；`unknown` 表示结果不确定，应先在 qBittorrent 核对，不能自动重投。
+`present` 表示任务已可见，不表示文件下载完成；`submitted_not_yet_visible` 表示已应答但尚未查到任务；`unknown` 表示结果不确定，应先在 qBittorrent 核对，不能自动重投。`resource_already_submitted` 返回原 request_id，应查询原请求；`failed_before_submission` 表示尚未尝试向下载器提交，可重新准备。
+
+URL 提交是异步操作：下载器接收请求不代表已获取种子或开始下载，应通过任务标签继续查询。签名链接在提交时生成，不持久化到插件数据库；链接失效或下载器网络失败时，不会自动刷新链接重投。已提交或结果不确定的同资源请求会阻止再次提交，需先人工核对下载器。此保护也会阻止删除下载器任务后自动重加同一资源；当前没有清除该提交记录的工具，不要直接删除数据库绕过保护。
 
 ## 安全与数据存储
 
@@ -144,6 +146,7 @@ Dashboard 可独立管理时，只需重启相应进程，不要求重启整个�
 - API 使用 Hermes 宿主认证和 profile 范围，不单独开放端口。外部环境或托管凭据来源可能影响最终生效值，应避免重复配置冲突。
 - `user_confirmed` 是模型声明，不是独立、不可绕过的审批系统。插件没有额外的分渠道/分用户授权；只向可信用户开放提交工具。
 - 下载目录安全边界由 qBittorrent 的挂载范围和运行用户权限决定。避免特权容器及不必要的可写挂载。
+- 签名 URL 本身具有访问权限，会发送到配置的 qBittorrent；下载器自身日志可能记录完整 URL，应限制其日志访问，不要公开分享。
 - 种子提交后可能下载和做种。资源确认绑定 ID、标题和路径，需信任站点在准备与提交间不替换内容。
 - 诊断仅提供阶段、状态和受限错误信息；上游 message 会做长度限制和保守脱敏，但不能保证识别任意个人信息。分享截图或日志前仍需检查，不公开密钥、Cookie、Authorization 或完整签名链接。
 
@@ -163,14 +166,14 @@ hermes plugins disable mteam-qbit
 
 ```sh
 python -m unittest discover -s tests -v
-node --check dashboard/dist/index-0.4.6.js
+node --check dashboard/dist/index-0.5.0.js
 # 可选前端 DOM 模拟测试
 cd tests/ui && npm install --ignore-scripts && npm test
 ```
 
 API 测试使用 fastapi/httpx；隔离 HTTPS 集成测试需要 openssl。前端测试依赖位于 `tests/ui/package.json`。
 
-当前版本通过 64 项离线 Python 测试及 JavaScript 语法检查。测试包括本机隔离 HTTPS 模拟服务、合成无 tracker 种子、Cookie 隔离、multipart 提交、查重和错误分阶段诊断。模拟服务不是实际 M-Team 或 qBittorrent，不能替代真实环境端到端验证。此前版本通过 DOM 模拟测试，当前版本未重新执行该项。
+当前版本通过 71 项 Python 测试及 JavaScript 语法检查。测试覆盖本机隔离 HTTPS 模拟服务、Cookie 隔离、URL 表单提交、异步标签查询、查重和错误分阶段诊断，并验证 Hermes 不获取种子文件。模拟服务不是实际 M-Team 或 qBittorrent，不能替代真实环境端到端验证。此前版本通过 DOM 模拟测试，当前版本未重新执行该项。
 
 `.gitignore` 排除配置、env、SQLite、种子和缓存，不能清理已提交到历史的秘密。项目当前未指定开源许可证。
 
@@ -185,3 +188,7 @@ API 测试使用 fastapi/httpx；隔离 HTTPS 集成测试需要 openssl。前�
 - [qBittorrent WebUI API](https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-%28qBittorrent-5.0%29)
 
 站点接口参考公开客户端实现，不构成上游长期兼容性保证。
+
+## 致谢
+
+感谢 [MTeam-Genie](https://github.com/astralwaveorg/MTeam-Genie) 的作者与贡献者。本项目参考了其将 M-Team 下载 URL 直接提交给 qBittorrent 的实现思路；此说明不代表双方存在合作、背书或代码授权关系。

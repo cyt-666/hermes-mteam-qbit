@@ -6,7 +6,7 @@
   const R = sdk.React, h = R.createElement;
   const {useState, useEffect} = sdk.hooks;
   const base = '/api/plugins/mteam-qbit';
-  const FRONTEND_VERSION = '0.4.6';
+  const FRONTEND_VERSION = '0.5.0';
   const inputStyle = {padding:'9px',border:'1px solid #8886',borderRadius:'6px',background:'transparent',color:'inherit',width:'100%'};
   const btnStyle = {padding:'9px 15px',border:'1px solid #8888',borderRadius:'6px',marginRight:'8px',cursor:'pointer'};
   function Page() {
@@ -98,13 +98,14 @@
         h('div',{style:{marginTop:'20px'}},field('category','qBittorrent 类别','默认 hermes，提交时关闭自动 Torrent 管理以保留指定路径。')),
         h('label',{style:{display:'block',marginBottom:'20px'}},h('input',{type:'checkbox',checked:v.start_paused,disabled:busy,onChange:e=>change('start_paused',e.target.checked)}),' 添加后暂停（默认关闭；开启可用于首次验收）'),
         h('details',null,h('summary',null,'高级设置（接口差异与下载域名）'),
-          h('label',{style:{display:'block',margin:'16px 0'}},'允许获取种子的域名（每行一个，精确匹配）',h('textarea',{style:inputStyle,rows:3,value:hosts,disabled:busy,onChange:e=>setHosts(e.target.value)})),
+          h('label',{style:{display:'block',margin:'16px 0'}},'允许提交给 qBittorrent 的种子 URL 域名（每行一个，精确匹配）',h('textarea',{style:inputStyle,rows:3,value:hosts,disabled:busy,onChange:e=>setHosts(e.target.value)})),
           field('search_path','搜索 API 路径','通常无需修改。'),field('detail_path','详情 API 路径','通常无需修改。'),field('download_path','下载令牌 API 路径','通常无需修改。'),
           h('label',null,'详情请求编码 ',h('select',{value:v.detail_encoding,disabled:busy,onChange:e=>change('detail_encoding',e.target.value)},h('option',{value:'form'},'form'),h('option',{value:'json'},'json'))),
           field('detail_origin','详情 origin（可留空）','站点需要时填写 DETAIL。'),field('search_mode','搜索模式','默认 normal。'),field('approval_ttl_seconds','准备请求有效期（秒）','60–86400 秒；默认 900。','number')),
         h('div',{style:{marginTop:'24px'}},h('button',{type:'submit',style:btnStyle,disabled:busy||versionMismatch},busy?'处理中…':'保存配置'),
           h('button',{type:'button',style:btnStyle,disabled:busy||versionMismatch,onClick:()=>test('mteam')},'测试馒头'),
           h('button',{type:'button',style:btnStyle,disabled:busy||versionMismatch,onClick:()=>test('qbit')},'测试 qBittorrent'))),
+      h('p',null,'下载 URL 将直接交给 qBittorrent 异步获取；取种使用下载器自身网络和 User-Agent，下载器日志可能包含签名链接。'),
       h('p',null,'测试仅使用已保存的配置：馒头调用账户连接接口（不返回账户资料、不验证搜索）；qBit 登录并读取版本。不获取种子、不添加任务，也不能验证保存目录写权限。'),
       h('div',{role:'status','aria-live':'polite',style:{padding:'12px',border:'1px solid #8885',borderRadius:'6px',marginTop:'16px'}},message||'等待操作。'),
       h('p',{style:{opacity:.75}},'Skill 随插件启用自动注册为 mteam-qbit:mteam-qbit。只搜索不会下载；下载需用户明确选择资源和保存目录。')

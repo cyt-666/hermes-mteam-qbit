@@ -275,8 +275,12 @@ class MTeam:
     @staticmethod
     def public(item):
         status = item.get('status') or {}
+        status = status if isinstance(status, dict) else {}
+        category = item.get('category')
+        if type(category) is int: category = str(category)
+        category = category if isinstance(category, str) and re.fullmatch(r'[0-9]{1,10}', category) else None
         # Only allow explicit fields; never leak tracker URLs/passkeys from raw responses.
-        return {'id': str(item.get('id', '')), 'title': str(item.get('name', ''))[:500],
+        return {'id': str(item.get('id', '')), 'category_id': category, 'title': str(item.get('name', ''))[:500],
                 'subtitle': str(item.get('smallDescr', ''))[:1000], 'size_bytes': item.get('size'),
                 'seeders': status.get('seeders'), 'leechers': status.get('leechers'),
                 'discount': status.get('discount'), 'created_at': item.get('createdDate')}
@@ -363,11 +367,13 @@ class MTeam:
         reported_page = count(data.get('pageNumber'))
         current = reported_page if reported_page and reported_page <= 1000 else page
         total, total_pages = count(data.get('total')), count(data.get('totalPages'))
+        reported_limit = count(data.get('pageSize'))
+        actual_limit = reported_limit if reported_limit and reported_limit <= 10000 else limit
         # Do not fabricate an end-of-list from a short page when server metadata is absent.
-        has_more = current < total_pages if total_pages is not None else current * limit < total if total is not None else None
+        has_more = current < total_pages if total_pages is not None else current * actual_limit < total if total is not None else None
         return {'items': [self.public(x) for x in data['data'] if isinstance(x, dict)],
                 'query': query, 'category': category if category_ids is None else 'custom', 'category_ids': categories,
-                'requested_page': page, 'page': current, 'limit': limit, 'total': total, 'total_pages': total_pages,
+                'requested_page': page, 'page': current, 'requested_limit': limit, 'limit': actual_limit, 'total': total, 'total_pages': total_pages,
                 'has_more': has_more, 'next_page': current + 1 if has_more is True and current < 1000 else None,
                 'page_limit_reached': current >= 1000, 'previous_page': current - 1 if current > 1 else None}
 
@@ -379,7 +385,7 @@ class MTeam:
             raise PluginError('Unexpected M-Team details schema.')
         return self.public(data)
 
-    def torrent(self, rid):
+    def download_url(self, rid):
         url = stage_call('mteam_download_link', self.api, self.cfg.get('download_path', '/api/torrent/genDlToken'), {'id': resource_id(rid)}, True)
         if not isinstance(url, str):
             raise PluginError('Unexpected M-Team download schema.')
@@ -387,6 +393,13 @@ class MTeam:
         hosts = self.cfg.get('download_hosts', [])
         if p.scheme != 'https' or p.hostname not in hosts or p.username or p.password or p.fragment or p.port not in (None, 443):
             raise PluginError('Torrent URL host is not allowlisted. Verify hostname in config, never paste secret URL into chat.')
+        if any(ord(c) < 33 or ord(c) == 127 for c in url):
+            raise PluginError("Invalid signed URL.")
+        return url
+
+    def torrent(self, rid):
+        # Legacy transport helper; URL submissions do not invoke this method.
+        url = self.download_url(rid)
         # No API credential forwarded to download host; signed token stays inside process.
         return stage_call('mteam_torrent_fetch', self.http.request, 'GET', url, {'User-Agent': self.cfg.get('user_agent', 'MTeamQBit/1.0')}, limit=8 * 1024 * 1024)
 
@@ -413,6 +426,26 @@ class QBit:
         if not isinstance(result, list):
             raise PluginError('Unexpected qBittorrent info schema.')
         return [{k: item.get(k) for k in ('hash', 'name', 'state', 'progress', 'dlspeed', 'eta', 'save_path')} for item in result]
+
+    def info_tag(self, tag):
+        if not re.fullmatch(r'mteam-qbit-(?:r[0-9]+|[a-f0-9]{32})', tag):
+            raise PluginError('Invalid task tag.')
+        result = decode_json(stage_call('qbit_task_lookup', self.call, 'torrents/info?tag=' + tag))
+        if not isinstance(result, list):
+            raise PluginError('Unexpected qBittorrent info schema.')
+        return [{k: item.get(k) for k in ('hash', 'name', 'state', 'progress', 'dlspeed', 'eta', 'save_path')}
+                for item in result if isinstance(item, dict) and isinstance(item.get('tags'), str)
+                and tag in [value.strip() for value in item['tags'].split(',')]]
+
+    def add_url(self, url, path, category, paused, request_id, rid):
+        version = stage_call('qbit_version', self.call, 'app/version').decode().strip().lstrip('v')
+        if not re.match(r'^[45]\.', version):
+            raise PluginError('Supported qBittorrent versions: 4.x / 5.x.')
+        fields = {'urls': url, 'savepath': path, 'category': category, 'autoTMM': 'false',
+                  'tags': 'mteam-qbit-' + request_id + ',mteam-qbit-r' + resource_id(rid),
+                  ('stopped' if version.startswith('5.') else 'paused'): str(paused).lower()}
+        if stage_call('qbit_add', self.call, 'torrents/add', urllib.parse.urlencode(fields).encode()).strip() != b'Ok.':
+            raise PluginError('qBittorrent did not acknowledge submission; check status before retrying.')
 
     def add(self, torrent, path, category, paused):
         version = stage_call('qbit_version', self.call, 'app/version').decode().strip().lstrip('v')
@@ -502,6 +535,10 @@ class App:
             if existing:
                 return {'state': 'present', 'tasks': existing, 'note': 'Existing task preserved; its save path was not changed.'}
         if row['state'] in ('submitting', 'submitted', 'unknown'):
+            if not row['hash']:
+                tasks = self.qb.info_tag('mteam-qbit-' + request_id)
+                if tasks:
+                    return {'state': 'present', 'tasks': tasks, 'note': 'No repeat submission.'}
             return {'state': 'unknown', 'hash': row['hash'], 'note': 'Not visible yet. Will not resubmit automatically; inspect qBittorrent.'}
         if row['state'] != 'approved':
             raise PluginError('User confirmation is required; prepare alone does not authorize submission.')
@@ -510,42 +547,56 @@ class App:
         if row['destination'] not in ('default-v3', 'explicit-v3'):
             raise PluginError('Legacy prepared request; prepare again with a save path.')
         save_path(row['path'])
-        # Freeze the path shown during prepare. A later default change never redirects it.
-        torrent = self.mt.torrent(row['rid'])
-        digest = torrent_hash(torrent)
-        # Serialize approval consumption before network side effect. Parallel calls cannot double-submit.
-        count = self.db.execute("UPDATE requests SET state='submitting',hash=? WHERE id=? AND state='approved'", (digest, request_id)).rowcount
+        # Serialize resource reservation across connections before generating the ephemeral URL.
+        # A pending/acknowledged URL cannot be safely resent just because no task is visible yet.
+        self.db.execute('BEGIN IMMEDIATE')
+        previous = self.db.execute("SELECT id FROM requests WHERE rid=? AND id!=? AND state IN ('submitting','submitted','unknown') LIMIT 1",
+                                   (row['rid'], request_id)).fetchone()
+        if previous:
+            self.db.rollback()
+            return {'state': 'resource_already_submitted', 'request_id': previous['id'],
+                    'note': 'Use the original request to check status. No second submission was sent.'}
+        count = self.db.execute("UPDATE requests SET state='submitting' WHERE id=? AND state='approved'", (request_id,)).rowcount
         self.db.commit()
         if not count:
             return {'state': 'busy', 'note': 'Another call already consumed approval.'}
-        existing = self.qb.info(digest)
-        if existing:
-            return {'state': 'present', 'tasks': existing, 'note': 'Existing task preserved; its save path was not changed.'}
         try:
-            self.qb.add(torrent, row['path'], row['category'], bool(row['paused']))
+            existing = self.qb.info_tag('mteam-qbit-r' + row['rid'])
+            if existing:
+                digest = existing[0].get('hash')
+                digest = digest if isinstance(digest, str) and re.fullmatch('[a-f0-9]{40}', digest) else None
+                self.db.execute("UPDATE requests SET state='submitted',hash=? WHERE id=?", (digest, request_id)); self.db.commit()
+                return {'state': 'present', 'tasks': existing, 'note': 'Existing tagged task preserved; its save path was not changed.'}
+            url = self.mt.download_url(row['rid'])
+        except Exception:
+            # No submission was attempted. A new preparation is safe; do not retain signed URL.
+            self.db.execute("UPDATE requests SET state='failed_before_submission' WHERE id=?", (request_id,)); self.db.commit()
+            raise
+        try:
+            self.qb.add_url(url, row['path'], row['category'], bool(row['paused']), request_id, row['rid'])
         except Exception as error:
-            self.db.execute("UPDATE requests SET state='unknown' WHERE id=?", (request_id,))
-            self.db.commit()
+            self.db.execute("UPDATE requests SET state='unknown' WHERE id=?", (request_id,)); self.db.commit()
             if isinstance(error, StageError):
                 raise StageError(error.stage, error.http_status, uncertain=True, reason=error.reason) from None
             raise StageError('qbit_add', uncertain=True) from None
-        self.db.execute("UPDATE requests SET state='submitted' WHERE id=?", (request_id,))
-        self.db.commit()
+        finally:
+            url = None
+        self.db.execute("UPDATE requests SET state='submitted' WHERE id=?", (request_id,)); self.db.commit()
         try:
-            tasks = self.qb.info(digest)
+            tasks = self.qb.info_tag('mteam-qbit-' + request_id)
         except Exception as error:
-            # Add was acknowledged; keep submitted in DB and never advise resending.
-            stage = error.stage if isinstance(error, StageError) else 'qbit_task_lookup'
-            status = error.http_status if isinstance(error, StageError) else None
-            raise StageError(stage, status, uncertain=True, reason=error.reason if isinstance(error, StageError) else 'unexpected_error') from None
-        return {'state': 'present' if tasks else 'submitted_not_yet_visible', 'hash': digest, 'tasks': tasks}
+            raise StageError('qbit_task_lookup', getattr(error, 'http_status', None), uncertain=True,
+                             reason=getattr(error, 'reason', 'unexpected_error')) from None
+        return {'state': 'present' if tasks else 'submitted_not_yet_visible', 'tasks': tasks,
+                'note': 'URL accepted is not download completion. Check this request status; do not resubmit.'}
 
     def status(self, request_id):
         row = self.row(request_id)
-        if not row['hash']:
+        if row['state'] not in ('submitting', 'submitted', 'unknown') and not row['hash']:
             return {'state': row['state'], 'tasks': []}
         self.qb.login()
-        return {'state': row['state'], 'hash': row['hash'], 'tasks': self.qb.info(row['hash'])}
+        tasks = self.qb.info(row['hash']) if row['hash'] else self.qb.info_tag('mteam-qbit-' + request_id)
+        return {'state': 'present' if tasks else row['state'], 'hash': row['hash'], 'tasks': tasks}
 
 
 def load_app():

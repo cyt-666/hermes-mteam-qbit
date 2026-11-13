@@ -13,15 +13,17 @@ from core import StageError, MTeamResponseError, HTTP, ServiceHTTPError, App, MT
 TORRENT = b'd4:infod6:lengthi1e4:name1:x6:pieces20:abcdefghijklmnopqrstee'
 class MT:
     def details(self,rid): return {'title':'Authorized sample','id':rid}
-    def torrent(self,rid): return TORRENT
+    def torrent(self,rid): raise AssertionError('Hermes must not fetch torrents')
+    def download_url(self,rid): return 'https://files.test/dl?token=FAKE'
 class QB:
     def __init__(self): self.tasks=[]; self.calls=[]; self.fail=False
     def login(self): pass
     def info(self,h): return self.tasks
-    def add(self,t,p,c,paused):
+    def info_tag(self,t): return self.tasks
+    def add_url(self,t,p,c,paused,*ids):
         self.calls.append((t,p,c,paused))
         if self.fail: raise TimeoutError('secret URL')
-        self.tasks=[{'hash':torrent_hash(t),'save_path':p,'state':'stoppedDL'}]
+        self.tasks=[{'hash':torrent_hash(TORRENT),'save_path':p,'state':'stoppedDL'}]
 class FakeHTTP:
     def __init__(self, replies): self.replies=list(replies); self.calls=[]
     def request(self,*args,**kw): self.calls.append((args,kw)); return self.replies.pop(0)
@@ -49,6 +51,95 @@ class Tests(unittest.TestCase):
         with self.assertRaisesRegex(PluginError,'uncertain'):self.app.submit(rid)
         self.assertEqual(self.app.submit(rid)['state'],'unknown')
         self.assertEqual(len(self.q.calls),1)
+    def test_url_pending_and_cross_request_dedup(self):
+        def pending(*args): self.q.calls.append(args)
+        self.q.add_url=pending
+        rid=self.prepared()
+        self.assertEqual(self.app.submit(rid,True)['state'],'submitted_not_yet_visible')
+        self.assertEqual(self.app.status(rid)['state'],'submitted')
+        self.assertEqual(self.app.submit(rid)['state'],'unknown')
+        other=self.prepared()
+        self.assertEqual(self.app.submit(other,True)['state'],'resource_already_submitted')
+        self.assertEqual(len(self.q.calls),1)
+        self.assertNotIn('token=FAKE',Path(self.cfg['state_path']).read_bytes().decode(errors='ignore'))
+        self.q.tasks=[{'hash':'a'*40,'save_path':'/downloads/movies'}]
+        self.assertEqual(self.app.status(rid)['state'],'present')
+
+    def test_url_generation_failure_safe_to_reprepare(self):
+        with patch.object(self.app.mt,'download_url',side_effect=StageError('mteam_download_link',403)):
+            rid=self.prepared()
+            with self.assertRaises(StageError):self.app.submit(rid,True)
+        self.assertEqual(self.app.row(rid)['state'],'failed_before_submission')
+        self.assertFalse(self.q.calls)
+        self.assertEqual(self.app.submit(self.prepared(),True)['state'],'present')
+
+    def test_url_qbit_fields_and_exact_tag(self):
+        import urllib.parse
+        for version,field in [(b'v4.6.0','paused'),(b'v5.0.0','stopped')]:
+            http=FakeHTTP([version,b'Ok.'])
+            qb=QBit({'base_url':'http://example.com'},http)
+            qb.add_url('https://files.test/t?token=FAKE','/other','test',True,'a'*32,'123')
+            form=urllib.parse.parse_qs(http.calls[1][0][3].decode())
+            self.assertEqual(form['urls'],['https://files.test/t?token=FAKE'])
+            self.assertEqual(form[field],['true']); self.assertEqual(form['savepath'],['/other'])
+            self.assertEqual(form['autoTMM'],['false'])
+            self.assertEqual(form['tags'],['mteam-qbit-'+('a'*32)+',mteam-qbit-r123'])
+        http=FakeHTTP([json.dumps([{'tags':'mteam-qbit-r1234','name':'wrong'},
+                                  {'tags':'other, mteam-qbit-r123','name':'right'}]).encode()])
+        tasks=QBit({'base_url':'http://example.com'},http).info_tag('mteam-qbit-r123')
+        self.assertEqual([x['name'] for x in tasks],['right'])
+
+    @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
+    def test_url_rejects_multiple_urls(self):
+        for url in ['https://files.test/x\nhttps://files.test/y','https://files.test/x\rfoo']:
+            mt=MTeam({'base_url':'https://example.com','download_hosts':['files.test']},
+                     FakeHTTP([json.dumps({'code':0,'data':url}).encode()]))
+            with self.assertRaises(PluginError):mt.download_url('123')
+
+    def test_reused_tagged_task_remains_trackable(self):
+        task={'hash':'b'*40,'save_path':'/existing'}
+        self.q.info_tag=lambda tag: [task] if tag=='mteam-qbit-r123' else []
+        self.q.info=lambda digest: [task] if digest=='b'*40 else []
+        rid=self.prepared()
+        self.assertEqual(self.app.submit(rid,True)['state'],'present')
+        self.assertEqual(self.app.row(rid)['hash'],'b'*40)
+        self.assertEqual(self.app.status(rid)['tasks'],[task])
+        self.assertEqual(self.app.submit(rid)['tasks'],[task])
+        self.assertFalse(self.q.calls)
+
+    @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
+    def test_server_page_size_and_category_projection(self):
+        for value,expected in [('422','422'),(422,'422'),(False,None),({'token':'SECRET'},None),('bad',None)]:
+            data={'data':[{'id':'1','name':'x','category':value}], 'pageNumber':2,'pageSize':20,'total':35}
+            mt=MTeam({'base_url':'https://example.com'},FakeHTTP([json.dumps({'code':0,'data':data}).encode()]))
+            result=mt.search('x',page=2,limit=10)
+            self.assertFalse(result['has_more']);self.assertEqual(result['limit'],20)
+            self.assertEqual(result['requested_limit'],10)
+            self.assertEqual(result['items'][0]['category_id'],expected)
+            self.assertNotIn('SECRET',json.dumps(result))
+
+    def test_concurrent_resource_reservation(self):
+        import threading
+        barrier=threading.Barrier(2)
+        requests=[self.prepared(),self.prepared()]
+        calls=[]; results=[]; errors=[]
+        class ConcurrentQB:
+            def login(self): barrier.wait(timeout=3)
+            def info_tag(self,tag):return []
+            def add_url(self,*args):calls.append(args)
+        def run(request):
+            app=App(self.cfg,MT(),ConcurrentQB())
+            try:results.append(app.submit(request,True))
+            except Exception as error:errors.append(error)
+            finally:app.db.close()
+        threads=[threading.Thread(target=run,args=(request,)) for request in requests]
+        for thread in threads:thread.start()
+        for thread in threads:thread.join(timeout=5)
+        self.assertFalse(errors)
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertEqual(len(calls),1)
+        self.assertEqual({x['state'] for x in results},{'resource_already_submitted','submitted_not_yet_visible'})
+
     def test_expiry(self):
         rid=self.prepared()
         with patch('core.time.time',return_value=1e12):
@@ -205,7 +296,7 @@ class Tests(unittest.TestCase):
     def test_add_stage_uncertainty_never_resends(self):
         rid=self.prepared()
         def reject(*args): raise StageError('qbit_add',403)
-        self.q.add=reject
+        self.q.add_url=reject
         with self.assertRaises(StageError) as ctx:self.app.submit(rid,True)
         self.assertEqual(ctx.exception.http_status,403)
         self.assertTrue(ctx.exception.uncertain)
@@ -256,7 +347,7 @@ class Tests(unittest.TestCase):
             lookups.append(digest)
             if len(lookups)==1:return []
             raise StageError('qbit_task_lookup',403)
-        self.q.info=info
+        self.q.info_tag=info
         with self.assertRaises(StageError) as ctx:self.app.submit(rid,True)
         self.assertTrue(ctx.exception.uncertain)
         self.assertEqual(ctx.exception.stage,'qbit_task_lookup')

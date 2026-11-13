@@ -9,6 +9,7 @@ import tempfile
 import threading
 import unittest
 import urllib.request
+import urllib.parse
 import http.cookiejar
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
@@ -23,7 +24,7 @@ class LoopbackTests(unittest.TestCase):
             subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes',
                 '-keyout',str(key),'-out',str(cert),'-days','1','-subj','/CN=localhost',
                 '-addext','subjectAltName=DNS:localhost'],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-            seen=[]; state={'added':False,'fetch':'ok','adds':0}
+            seen=[]; state={'added':False,'fetch':'ok','adds':0,'tags':''}
             class Handler(BaseHTTPRequestHandler):
                 def log_message(self,*args):pass
                 def do_GET(self):self.handle_request()
@@ -43,10 +44,11 @@ class LoopbackTests(unittest.TestCase):
                     elif path=='/api/v2/auth/login':payload=b'Ok.';headers['Set-Cookie']='SID=synthetic; Path=/'
                     elif path=='/api/v2/app/version':payload=b'v5.1.0'
                     elif path=='/api/v2/torrents/info':
-                        payload=json.dumps([{'hash':torrent_hash(TORRENT),'name':'synthetic','save_path':'/test/path'}] if state['added'] else []).encode()
+                        payload=json.dumps([{'hash':torrent_hash(TORRENT),'name':'synthetic','save_path':'/test/path','tags':state['tags']}] if state['added'] else []).encode()
                     elif path=='/api/v2/torrents/add':
-                        if TORRENT not in body or b'/test/path' not in body or b'name="stopped"' not in body:status=400
-                        else:state['adds']+=1;state['added']=True;payload=b'Ok.'
+                        form=urllib.parse.parse_qs(body.decode())
+                        if form.get('urls')!=['https://isolated.test/torrent?token=FAKE'] or form.get('savepath')!=['/test/path'] or form.get('stopped')!=['false']:status=400
+                        else:state['adds']+=1;state['added']=True;state['tags']=form['tags'][0];payload=b'Ok.'
                     else:status=404
                     self.send_response(status)
                     for k,v in headers.items():self.send_header(k,v)
@@ -77,6 +79,8 @@ class LoopbackTests(unittest.TestCase):
                     request=app.prepare('1')
                     result=app.submit(request['request_id'],True)
                     self.assertEqual(result['state'],'present');self.assertEqual(state['adds'],1)
+                    self.assertEqual(server.fetches,0)  # URL is delegated; Hermes performs no torrent GET.
+                    self.assertNotIn('token=FAKE',Path(tmp+'/state.db').read_bytes().decode(errors='ignore'))
                     app.submit(request['request_id'])
                     self.assertEqual(state['adds'],1)
                     for mode,reason,status in [('redirect','redirect_refused',302),('forbidden','http_error',403)]:
