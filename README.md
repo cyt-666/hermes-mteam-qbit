@@ -191,7 +191,7 @@ cd tests/ui && npm install --ignore-scripts && npm test
 
 API 测试使用 fastapi/httpx；隔离 HTTPS 集成测试需要 openssl。前端测试依赖位于 `tests/ui/package.json`。
 
-当前版本通过 76 项 Python 测试及 JavaScript 语法检查。测试覆盖本机隔离 HTTPS 模拟服务、Cookie 隔离、URL 提交、异步标签查询、分页列表、两种删除模式和错误诊断；删除测试仅针对模拟服务。模拟服务不是实际 M-Team 或 qBittorrent，不能替代真实环境端到端验证。此前版本通过 DOM 模拟测试，当前版本未重新执行该项。
+当前版本通过 80 项 Python 测试及 JavaScript 语法检查。测试覆盖本机隔离 HTTPS 模拟服务、Cookie 隔离、URL 提交、异步标签查询、分页列表、两种删除模式和错误诊断；删除测试仅针对模拟服务。模拟服务不是实际 M-Team 或 qBittorrent，不能替代真实环境端到端验证。此前版本通过 DOM 模拟测试，当前版本未重新执行该项。
 
 `.gitignore` 排除配置、env、SQLite、种子和缓存，不能清理已提交到历史的秘密。项目当前未指定开源许可证。
 
@@ -210,3 +210,21 @@ API 测试使用 fastapi/httpx；隔离 HTTPS 集成测试需要 openssl。前�
 ## 致谢
 
 感谢 [MTeam-Genie](https://github.com/astralwaveorg/MTeam-Genie) 的作者与贡献者。本项目参考了其将 M-Team 下载 URL 直接提交给 qBittorrent 的实现思路；此说明不代表双方存在合作、背书或代码授权关系。
+
+### 可选 test2 实站只读验证
+
+`tests/live_mteam_readonly.py` 不在默认单元测试发现范围内，必须手动运行。使用测试站专用 Key，不得使用生产凭据。将以下结构保存为项目目录外、权限 `600` 的 JSON 文件：
+
+```json
+{"MTEAM_TEST_API_KEY": "测试站专用值"}
+```
+
+```sh
+python tests/live_mteam_readonly.py --credentials /安全目录/test-credentials.json --query ubuntu
+```
+
+脚本硬性限定 HTTPS `test2.m-team.cc` 的账户连接、分类、搜索、详情四个端点，禁用 Cookie 和重定向；不生成下载链接、不获取种子、不操作下载器。测试覆盖两页搜索、分类 ID 与精确名称筛选（有对应结果时）。输出仅为计数和验证指标，不记录账户资料、密钥、原始错误或响应。网络失败不会自动重试；任一执行项失败或分类比对不符时退出码为 1，全体执行项成功为 0。无搜索结果时详情和分类筛选不执行，不能将其视为这些接口已验证。测试账户结果不代表生产账户权限。
+
+专用凭据文件由使用者管理，脚本不会删除或自动轮换；保留用于后续联调时应限制访问，停止使用或怀疑泄漏时由使用者在测试站撤销。环境替换不保证保留该文件，不能将其提交仓库或写入公开日志。
+
+验证记录（2026-11-13，test2 专用测试账户）：账户连接成功，实时分类返回 49 项及 5 个分组；Ubuntu 关键词第 1/2 页、资源详情、分类 ID 筛选及实时精确分类名筛选均成功。未获取种子或提交下载；这些结果不代表所有分类、其他账户权限或未来接口行为均已验证。
