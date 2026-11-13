@@ -20,6 +20,8 @@ class PluginError(Exception):
     pass
 
 
+SEARCH_MODES = ('normal', 'adult', 'movie', 'music', 'tvshow', 'anime', 'rankings', 'all')
+
 class StageError(PluginError):
     def __init__(self, stage, status=None, uncertain=False, reason=None):
         self.stage = stage
@@ -342,7 +344,10 @@ class MTeam:
             else: leaves.append(rid)
         return leaves
 
-    def search(self, query, page=1, limit=20, category='all', category_ids=None):
+    def search(self, query, page=1, limit=20, category='all', category_ids=None, mode=None):
+        mode = self.cfg.get('search_mode', 'normal') if mode is None else mode
+        if not isinstance(mode, str) or mode not in SEARCH_MODES:
+            raise PluginError('Unsupported M-Team search mode.')
         if not isinstance(query, str) or not query.strip() or len(query) > 200:
             raise PluginError('Search query must contain 1–200 characters.')
         if type(page) is not int or type(limit) is not int or not 1 <= page <= 1000 or not 1 <= limit <= 50:
@@ -357,7 +362,7 @@ class MTeam:
         else:
             categories = self.resolve_category(category)
         data = self.api(self.cfg.get('search_path', '/api/torrent/search'),
-                        {'mode': self.cfg.get('search_mode', 'normal'), 'keyword': query,
+                        {'mode': mode, 'keyword': query,
                          'categories': categories, 'pageNumber': page, 'pageSize': limit})
         if not isinstance(data, dict) or not isinstance(data.get('data'), list):
             raise PluginError('Unexpected M-Team search schema.')
@@ -373,7 +378,7 @@ class MTeam:
         # Do not fabricate an end-of-list from a short page when server metadata is absent.
         has_more = current < total_pages if total_pages is not None else current * actual_limit < total if total is not None else None
         return {'items': [self.public(x) for x in data['data'] if isinstance(x, dict)],
-                'query': query, 'category': category if category_ids is None else 'custom', 'category_ids': categories,
+                'query': query, 'mode': mode, 'category': category if category_ids is None else 'custom', 'category_ids': categories,
                 'requested_page': page, 'page': current, 'requested_limit': limit, 'limit': actual_limit, 'total': total, 'total_pages': total_pages,
                 'has_more': has_more, 'next_page': current + 1 if has_more is True and current < 1000 else None,
                 'page_limit_reached': current >= 1000, 'previous_page': current - 1 if current > 1 else None}

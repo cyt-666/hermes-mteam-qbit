@@ -35,7 +35,7 @@ class LiveProbeSafetyTests(unittest.TestCase):
             link=Path(d)/'link';link.symlink_to(p)
             with self.assertRaises(ValueError):probe.read_key(link)
 
-    def fake_run(self, fail=False, mismatch=False):
+    def fake_run(self, fail=False, mismatch=False, all_modes=False):
         class FakeHTTP:
             def __init__(self, **kwargs):pass
         class FakeMTeam:
@@ -49,18 +49,18 @@ class LiveProbeSafetyTests(unittest.TestCase):
             def search(self,*args,**kwargs):
                 if fail:raise ValueError('DO_NOT_ECHO_SECRET')
                 filtered=bool(kwargs)
-                return {'items':[{'id':'1','category_id':'999' if filtered and mismatch else '422'}],
+                return {'mode':kwargs.get('mode','normal'), 'items':[{'id':'1','category_id':'999' if filtered and mismatch else '422'}],
                         'page':args[1], 'requested_limit':5,'limit':5,'has_more':False,'next_page':None,
                         'category_ids':['999' if mismatch else '422']}
             def details(self,*args):return {}
-        core=SimpleNamespace(HTTP=FakeHTTP,MTeam=FakeMTeam)
+        core=SimpleNamespace(HTTP=FakeHTTP,MTeam=FakeMTeam,SEARCH_MODES=('normal','adult','movie','music','tvshow','anime','rankings','all'))
         fake_spec=SimpleNamespace(loader=SimpleNamespace(exec_module=lambda _:None))
         out=io.StringIO()
         with patch.object(probe.importlib.util,'spec_from_file_location',return_value=fake_spec), \
              patch.object(probe.importlib.util,'module_from_spec',return_value=core), \
              patch.object(probe,'read_key',return_value='synthetic'), \
              contextlib.redirect_stdout(out):
-            result=probe.run('not-read',delay=0)
+            result=probe.run('not-read',delay=0,all_modes=all_modes)
         self.assertNotIn('DO_NOT_ECHO_SECRET',out.getvalue())
         return result
 
@@ -78,3 +78,10 @@ class LiveProbeSafetyTests(unittest.TestCase):
         self.assertEqual(probe.exit_status(result),1)
         self.assertEqual(probe.exit_status([]),1)
         self.assertEqual(probe.exit_status(self.fake_run()),0)
+
+    def test_optional_all_modes_probe(self):
+        result=self.fake_run(all_modes=True)
+        modes=[x for x in result if x['operation'].startswith('mode_')]
+        self.assertEqual(len(modes),8)
+        self.assertTrue(all(x['ok'] and x['mode_matches'] for x in modes))
+        self.assertEqual(probe.exit_status(result),0)

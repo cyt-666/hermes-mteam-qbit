@@ -215,6 +215,29 @@ class Tests(unittest.TestCase):
             self.assertEqual(args[0],'POST');self.assertTrue(args[1].endswith('/torrents/delete'))
             self.assertEqual(urllib.parse.parse_qs(args[3].decode()),{'hashes':['b'*64],'deleteFiles':[str(files).lower()]})
 
+    @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
+    def test_search_mode_enum_override_and_pagination(self):
+        from core import SEARCH_MODES
+        for mode in SEARCH_MODES:
+            replies=[json.dumps({'code':0,'data':{'data':[],'totalPages':3}}).encode()]*2
+            http=FakeHTTP(replies);mt=MTeam({'base_url':'https://example.com','search_mode':'normal'},http)
+            result=mt.search('sample',mode=mode)
+            self.assertEqual(result['mode'],mode)
+            mt.search('sample',page=result['next_page'],mode=result['mode'])
+            self.assertEqual([json.loads(call[0][3])['mode'] for call in http.calls],[mode,mode])
+            self.assertEqual(json.loads(http.calls[1][0][3])['pageNumber'],2)
+        http=FakeHTTP([b'{"code":0,"data":{"data":[]}}']*3)
+        mt=MTeam({'base_url':'https://example.com','search_mode':'music'},http)
+        self.assertEqual(mt.search('sample')['mode'],'music')
+        self.assertEqual(mt.search('sample',1,20,'all',None)['mode'],'music')
+        mt.cfg.pop('search_mode')
+        self.assertEqual(mt.search('sample')['mode'],'normal')
+        for invalid in ['NORMAL','',False,12,[],{},'other','waterfall','rss']:
+            with self.assertRaises(PluginError):mt.search('sample',mode=invalid)
+        mt.cfg['search_mode']='unknown'
+        with self.assertRaises(PluginError):mt.search('sample')
+        self.assertEqual(len(http.calls),3)
+
     def test_expiry(self):
         rid=self.prepared()
         with patch('core.time.time',return_value=1e12):

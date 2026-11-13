@@ -7,7 +7,7 @@ import os
 import re
 import tempfile
 from pathlib import Path, PurePosixPath
-from .core import PluginError, base_url, endpoint, save_path, configured_default
+from .core import PluginError, base_url, endpoint, save_path, configured_default, SEARCH_MODES
 
 SECRET_FIELDS = {'mteam_api_key': 'MTEAM_API_KEY', 'qbit_username': 'QBIT_USERNAME', 'qbit_password': 'QBIT_PASSWORD'}
 DEFAULTS = {
@@ -41,6 +41,8 @@ def validate(values):
     for k in ('category', 'detail_origin', 'search_mode'):
         if not isinstance(v[k], str) or len(v[k]) > 100 or any(c in v[k] for c in '\r\n\0'):
             raise PluginError('类别/模式/来源字段无效。')
+    if v['search_mode'] not in SEARCH_MODES:
+        raise PluginError('搜索模式不在支持的接口枚举中。')
     if type(v['start_paused']) is not bool or type(v['approval_ttl_seconds']) is not int or not 60 <= v['approval_ttl_seconds'] <= 86400:
         raise PluginError('暂停开关或确认有效期无效（60–86400 秒）。')
     if not isinstance(v['download_hosts'], list) or not 1 <= len(v['download_hosts']) <= 20 or not all(isinstance(h, str) and re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?', h) for h in v['download_hosts']):
@@ -77,7 +79,14 @@ def public_values(cfg):
         result[k] = cfg.get(k, DEFAULTS[k])
     result['default_save_path'] = configured_default(cfg)
     # Do not return entire config: legacy manually added unknown secrets stay private.
-    return validate(result)
+    # Keep retired defaults visible/editable without silently changing the saved search scope.
+    retired = result['search_mode'] if result['search_mode'] in ('waterfall', 'rss') else None
+    if retired:
+        result['search_mode'] = 'normal'
+    validated = validate(result)
+    if retired:
+        validated['search_mode'] = retired
+    return validated
 
 
 def read_settings():

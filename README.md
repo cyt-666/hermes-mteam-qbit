@@ -1,6 +1,6 @@
 # M-Team + qBittorrent
 
-Hermes 原生插件，支持搜索馒头资源、查看详情，并将明确选择的种子提交到 qBittorrent。当前版本：**0.5.1**。
+Hermes 原生插件，支持搜索馒头资源、查看详情，并将明确选择的种子提交到 qBittorrent。当前版本：**0.6.0**。
 
 站点、下载器、凭据和默认保存路径均通过 Hermes Web Dashboard 配置。插件内附 Skill，无需单独安装。
 
@@ -42,7 +42,7 @@ Hermes 原生插件，支持搜索馒头资源、查看详情，并将明确选�
 ├── dashboard/
 │   ├── manifest.json
 │   ├── plugin_api.py
-│   └── dist/index-0.5.1.js
+│   └── dist/index-0.6.0.js
 └── skills/mteam-qbit/SKILL.md
 ```
 
@@ -107,6 +107,10 @@ Dashboard 可独立管理时，只需重启相应进程，不要求重启整个�
 - “用刚才列出的分类名称筛选，查看下一页。”
 - “查看资源 123 的详情。”
 
+搜索支持以下 8 种模式：`normal`、`adult`、`movie`、`music`、`tvshow`、`anime`、`rankings`、`all`。网页可选择默认模式，初始为 `normal`；对话中可指定本次 `mode`，不会改写保存的默认值。翻页保留返回的模式，切换模式从第一页开始，不会因结果为空自动更换范围。
+
+`mode` 控制搜索视图/范围，`categories` 在该范围内进一步筛选；`category=all` 只表示不限制分类，并不等于 `mode=all`。例如可明确说“使用 movie 模式搜索 ××，再按刚才查到的分类筛选”。特殊模式的可见性及返回内容由站点与账号权限决定。实站模式探测只能确认请求是否成功及结果数量，不能单凭成功码证明服务端完整执行了每种模式的筛选语义。
+
 分类名称须匹配实时返回的简体、繁体或英文名称，也支持分组键及数字 ID。父类名称展开为实时子孙叶类；同名分类需指定 ID。数字 ID 原样提交，不保证服务器接受。分类目录受账户可见性影响，也不保证所有分类都可在当前 `search_mode` 搜索，插件不会自动切换分区。
 
 分页从 1 开始，最多 1000 页，每页 1–50 条。下一页保持关键词、筛选和页大小，改变关键词或筛选时从第一页开始。非空 `category_ids` 可原样回传；返回 `category_ids=[]` 表示全部分类，下一页应省略该参数并使用 `category=all`。返回结果包含安全提取的 `category_id`。分页优先使用服务端实际 `pageSize` 计算后续页，保留请求的 `requested_limit`，下一页继续传 `requested_limit`，不要把服务端实际 `limit` 回填为请求参数；站点未提供可靠总量时，不根据短页猜测是否结束。
@@ -130,7 +134,7 @@ Dashboard 可独立管理时，只需重启相应进程，不要求重启整个�
 | 工具 | 用途 |
 |---|---|
 | `pt_categories` | 读取实时分类，需要已保存 API Key |
-| `pt_search` | 搜索；支持 query、page、limit、category、category_ids |
+| `pt_search` | 搜索；支持 query、page、limit、mode、category、category_ids |
 | `pt_details` | 读取 resource_id 详情 |
 | `pt_destinations` | 查看默认保存路径 |
 | `pt_prepare_download` | resource_id 与可选 save_path，生成请求摘要和 request_id |
@@ -184,14 +188,14 @@ hermes plugins disable mteam-qbit
 
 ```sh
 python -m unittest discover -s tests -v
-node --check dashboard/dist/index-0.5.1.js
+node --check dashboard/dist/index-0.6.0.js
 # 可选前端 DOM 模拟测试
 cd tests/ui && npm install --ignore-scripts && npm test
 ```
 
 API 测试使用 fastapi/httpx；隔离 HTTPS 集成测试需要 openssl。前端测试依赖位于 `tests/ui/package.json`。
 
-当前版本通过 80 项 Python 测试及 JavaScript 语法检查。测试覆盖本机隔离 HTTPS 模拟服务、Cookie 隔离、URL 提交、异步标签查询、分页列表、两种删除模式和错误诊断；删除测试仅针对模拟服务。模拟服务不是实际 M-Team 或 qBittorrent，不能替代真实环境端到端验证。此前版本通过 DOM 模拟测试，当前版本未重新执行该项。
+当前版本通过 84 项 Python 测试及 JavaScript 语法检查。测试覆盖本机隔离 HTTPS 模拟服务、Cookie 隔离、URL 提交、异步标签查询、分页列表、两种删除模式和错误诊断；删除测试仅针对模拟服务。模拟服务不是实际 M-Team 或 qBittorrent，不能替代真实环境端到端验证。此前版本通过 DOM 模拟测试，当前版本未重新执行该项。
 
 `.gitignore` 排除配置、env、SQLite、种子和缓存，不能清理已提交到历史的秘密。项目当前未指定开源许可证。
 
@@ -221,6 +225,8 @@ API 测试使用 fastapi/httpx；隔离 HTTPS 集成测试需要 openssl。前�
 
 ```sh
 python tests/live_mteam_readonly.py --credentials /安全目录/test-credentials.json --query ubuntu
+# 显式覆盖当前支持的全部模式（仅输出计数）
+python tests/live_mteam_readonly.py --credentials /安全目录/test-credentials.json --all-modes
 ```
 
 脚本硬性限定 HTTPS `test2.m-team.cc` 的账户连接、分类、搜索、详情四个端点，禁用 Cookie 和重定向；不生成下载链接、不获取种子、不操作下载器。测试覆盖两页搜索、分类 ID 与精确名称筛选（有对应结果时）。输出仅为计数和验证指标，不记录账户资料、密钥、原始错误或响应。网络失败不会自动重试；任一执行项失败或分类比对不符时退出码为 1，全体执行项成功为 0。无搜索结果时详情和分类筛选不执行，不能将其视为这些接口已验证。测试账户结果不代表生产账户权限。
@@ -228,3 +234,7 @@ python tests/live_mteam_readonly.py --credentials /安全目录/test-credentials
 专用凭据文件由使用者管理，脚本不会删除或自动轮换；保留用于后续联调时应限制访问，停止使用或怀疑泄漏时由使用者在测试站撤销。环境替换不保证保留该文件，不能将其提交仓库或写入公开日志。
 
 验证记录（2026-11-13，test2 专用测试账户）：账户连接成功，实时分类返回 49 项及 5 个分组；Ubuntu 关键词第 1/2 页、资源详情、分类 ID 筛选及实时精确分类名筛选均成功。未获取种子或提交下载；这些结果不代表所有分类、其他账户权限或未来接口行为均已验证。
+
+搜索模式实测（2026-11-13，test2、关键词 ubuntu）：`normal`、`adult`、`movie`、`music`、`tvshow`、`anime`、`rankings`、`all` 返回业务成功；`waterfall` 和 `rss` 均返回 HTTP 200、业务码 1；其中 waterfall 为权限拒绝，rss 的具体原因尚未确认。空结果不表示模式失败。因此本版暂不支持 waterfall 和 rss，工具、配置保存和验证脚本只接受其余 8 种模式，不绕过服务器拒绝、不将失败自动改为其他模式。此结果不能代表所有账号或生产站行为。
+
+旧配置若使用 waterfall 或 rss，网页仍可打开并显示“不支持”的旧值，需明确选择支持的默认模式后保存；插件不会悄悄将原默认值改成 normal。调用时也可明确传入支持的模式覆盖旧默认值。实时分类目录中的同名分组与搜索 mode 不同，不受这一模式范围调整影响。

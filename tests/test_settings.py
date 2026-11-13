@@ -24,6 +24,26 @@ class SettingsTests(unittest.TestCase):
         self.patch=patch.dict(sys.modules,{'hermes_constants':constants,'hermes_cli':types.ModuleType('hermes_cli'),'hermes_cli.credential_lifecycle':lifecycle,'agent':types.ModuleType('agent'),'agent.secret_scope':scope})
         self.patch.start()
     def tearDown(self):self.patch.stop();self.tmp.cleanup()
+    def test_search_mode_validation(self):
+        for mode in settings.SEARCH_MODES:
+            values=settings.validate({'search_mode':mode})
+            self.assertEqual(values['search_mode'],mode)
+            self.assertEqual(settings.to_config(values,self.home/'config.json')['mteam']['search_mode'],mode)
+        for mode in ['', 'NORMAL', 'invalid', 'waterfall', 'rss', None, False, [], {}]:
+            with self.assertRaises(PluginError):settings.validate({'search_mode':mode})
+        self.assertEqual(settings.validate({})['search_mode'],'normal')
+
+    def test_retired_mode_is_editable_but_not_saved_implicitly(self):
+        for mode in ('waterfall','rss'):
+            cfg=settings.to_config(settings.DEFAULTS,self.home/'config.json')
+            cfg['mteam']['search_mode']=mode
+            shown=settings.public_values(cfg)
+            self.assertEqual(shown['search_mode'],mode)
+            self.assertEqual(cfg['mteam']['search_mode'],mode)
+            with self.assertRaises(PluginError):settings.validate(shown)
+            shown['search_mode']='normal'
+            self.assertEqual(settings.validate(shown)['search_mode'],'normal')
+
     def test_save_and_redaction(self):
         settings.save_settings(settings.DEFAULTS,{'mteam_api_key':'TEST_ONLY_SECRET'})
         text=settings.config_path().read_text()

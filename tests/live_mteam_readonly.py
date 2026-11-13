@@ -37,7 +37,7 @@ def allowed_request(method, url):
             and not u.query and not u.fragment and u.path in PATHS)
 
 
-def run(path, query='ubuntu', delay=3):
+def run(path, query='ubuntu', delay=3, all_modes=False):
     spec = importlib.util.spec_from_file_location('mteam_live_core', Path(__file__).resolve().parents[1] / 'core.py')
     core = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(core)
@@ -59,7 +59,7 @@ def run(path, query='ubuntu', delay=3):
         try:
             result, summary = fn()
             state[name] = result
-            checks = ('returned_categories_match', 'category_id_selected')
+            checks = ('returned_categories_match', 'category_id_selected', 'mode_matches')
             passed = all(summary.get(k, True) is True for k in checks)
             record = {'operation': name, 'ok': passed, **summary}
             if not passed:
@@ -106,6 +106,13 @@ def run(path, query='ubuntu', delay=3):
                         r = mt.search(query, 1, 5, category=name)
                         return r, {'count': len(r['items']), 'category_id_selected': category in r['category_ids']}
                     probe('category_name_search', named)
+    if all_modes:
+        for mode in core.SEARCH_MODES:
+            def search_mode(mode=mode):
+                r = mt.search(query, 1, 1, mode=mode)
+                return r, {'mode': r['mode'], 'count': len(r['items']),
+                           'page': r['page'], 'mode_matches': r['mode'] == mode}
+            probe('mode_' + mode, search_mode)
     return results
 
 
@@ -117,9 +124,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--credentials', required=True, help='600 JSON file containing MTEAM_TEST_API_KEY; never pass a key on command line')
     parser.add_argument('--query', default='ubuntu')
+    parser.add_argument('--all-modes', action='store_true', help='Explicitly probe every currently supported mode; only counts are printed')
     args = parser.parse_args()
     try:
-        results = run(args.credentials, args.query)
+        results = run(args.credentials, args.query, all_modes=args.all_modes)
         raise SystemExit(exit_status(results))
     except Exception as e:
         print(json.dumps({'ok': False, 'error_type': type(e).__name__, 'stage': 'probe_setup'}))

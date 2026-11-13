@@ -6,7 +6,7 @@
   const R = sdk.React, h = R.createElement;
   const {useState, useEffect} = sdk.hooks;
   const base = '/api/plugins/mteam-qbit';
-  const FRONTEND_VERSION = '0.5.1';
+  const FRONTEND_VERSION = '0.6.0';
   const inputStyle = {padding:'9px',border:'1px solid #8886',borderRadius:'6px',background:'transparent',color:'inherit',width:'100%'};
   const btnStyle = {padding:'9px 15px',border:'1px solid #8888',borderRadius:'6px',marginRight:'8px',cursor:'pointer'};
   function Page() {
@@ -101,7 +101,7 @@
           h('label',{style:{display:'block',margin:'16px 0'}},'允许提交给 qBittorrent 的种子 URL 域名（每行一个，精确匹配）',h('textarea',{style:inputStyle,rows:3,value:hosts,disabled:busy,onChange:e=>setHosts(e.target.value)})),
           field('search_path','搜索 API 路径','通常无需修改。'),field('detail_path','详情 API 路径','通常无需修改。'),field('download_path','下载令牌 API 路径','通常无需修改。'),
           h('label',null,'详情请求编码 ',h('select',{value:v.detail_encoding,disabled:busy,onChange:e=>change('detail_encoding',e.target.value)},h('option',{value:'form'},'form'),h('option',{value:'json'},'json'))),
-          field('detail_origin','详情 origin（可留空）','站点需要时填写 DETAIL。'),field('search_mode','搜索模式','默认 normal。'),field('approval_ttl_seconds','准备请求有效期（秒）','60–86400 秒；默认 900。','number')),
+          field('detail_origin','详情 origin（可留空）','站点需要时填写 DETAIL。'),h('label',{style:{display:'block',margin:'16px 0'}},'默认搜索模式 ',h('select',{value:v.search_mode,disabled:busy,onChange:e=>change('search_mode',e.target.value)},(['waterfall','rss'].includes(v.search_mode) ? h('option',{value:v.search_mode,disabled:true},'旧配置模式暂不支持，请重新选择') : null),...['normal', 'adult', 'movie', 'music', 'tvshow', 'anime', 'rankings', 'all'].map(mode=>h('option',{key:mode,value:mode},mode))),h('small',{style:{display:'block'}},'对话可为本次搜索指定其他模式，不修改此默认值；mode 与分类筛选同时生效。若旧默认模式暂不支持，请明确选择一个支持的模式再保存，不会自动迁移。')),field('approval_ttl_seconds','准备请求有效期（秒）','60–86400 秒；默认 900。','number')),
         h('div',{style:{marginTop:'24px'}},h('button',{type:'submit',style:btnStyle,disabled:busy||versionMismatch},busy?'处理中…':'保存配置'),
           h('button',{type:'button',style:btnStyle,disabled:busy||versionMismatch,onClick:()=>test('mteam')},'测试馒头'),
           h('button',{type:'button',style:btnStyle,disabled:busy||versionMismatch,onClick:()=>test('qbit')},'测试 qBittorrent'))),
