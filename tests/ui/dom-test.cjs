@@ -5,10 +5,10 @@ const dom=new JSDOM('<div id="root"></div>',{url:'https://hermes.test',runScript
 global.window=dom.window;global.document=dom.window.document;global.navigator=dom.window.navigator;global.IS_REACT_ACT_ENVIRONMENT=true;
 const React=require('react'),ReactDOM=require('react-dom/client');const {act}=React;const {Simulate}=require('react-dom/test-utils');
 const values={mteam_url:'https://api.m-team.cc',mteam_user_agent:'MTeamQBit/1.0',qbit_url:'http://qbittorrent:8080',download_hosts:['api.m-team.cc'],default_save_path:'/downloads',category:'hermes',start_paused:false,approval_ttl_seconds:900,search_path:'/api/torrent/search',detail_path:'/api/torrent/detail',download_path:'/api/torrent/genDlToken',detail_encoding:'form',detail_origin:'',search_mode:'normal'};
-const calls=[];let component;let backendVersion='0.4.3';let failedProbe=false;let probeError=null;let invalidResponse=false;
+const calls=[];let component;let backendVersion='0.4.4';let failedProbe=false;let probeError=null;let invalidResponse=false;
 window.__HERMES_PLUGIN_SDK__={React,hooks:React,fetchJSON:async(url,opts)=>{calls.push({url,opts});if(opts?.method==='PUT')return {ok:true};if(opts?.method==='POST' && probeError)throw probeError;if(opts?.method==='POST' && invalidResponse)return '<secret html>';if(opts?.method==='POST')return failedProbe?{ok:false,code:'http_403',message:'安全诊断'}:{ok:true,message:'TEST_SUCCESS_NO_DOWNLOAD'};return {backend_version:backendVersion,settings:values,secrets_set:{mteam_api_key:true,qbit_username:true,qbit_password:true}};}};
 window.__HERMES_PLUGINS__={register:(name,c)=>{assert.equal(name,'mteam-qbit');component=c;}};
-window.eval(fs.readFileSync(require('path').resolve(__dirname,'../../dashboard/dist/index-0.4.3.js'),'utf8'));
+window.eval(fs.readFileSync(require('path').resolve(__dirname,'../../dashboard/dist/index-0.4.4.js'),'utf8'));
 (async()=>{
 const root=ReactDOM.createRoot(document.getElementById('root'));
 await act(async()=>root.render(React.createElement(component)));
@@ -28,8 +28,8 @@ failedProbe=true;
 await act(async()=>Simulate.click(button('测试馒头')));
 assert(document.body.textContent.includes('http_403'));
 assert(document.body.textContent.includes('安全诊断'));
-assert(document.body.textContent.includes('前端 v0.4.3'));
-assert(document.body.textContent.includes('后端 0.4.3'));
+assert(document.body.textContent.includes('前端 v0.4.4'));
+assert(document.body.textContent.includes('后端 0.4.4'));
 for(const status of [400,401,403,404,429,502,504,0]){
  probeError={status,message:'DO_NOT_ECHO',body:'DO_NOT_ECHO',url:'DO_NOT_ECHO'};
  await act(async()=>Simulate.click(button('测试馒头')));
@@ -49,7 +49,7 @@ await act(async()=>Simulate.submit(document.querySelector('form')));
 assert(document.body.textContent.includes('前后端版本不一致'));
 assert(button('测试馒头').disabled);
 assert(button('保存配置').disabled);
-backendVersion='0.4.3';
+backendVersion='0.4.4';
 await act(async()=>Simulate.click(button('重新检查后端版本')));
 assert(!button('测试馒头').disabled);
 await act(async()=>root.unmount());

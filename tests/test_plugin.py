@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from core import MTeamResponseError, HTTP, ServiceHTTPError, App, MTeam, QBit, PluginError, torrent_hash, endpoint, base_url
+from core import StageError, MTeamResponseError, HTTP, ServiceHTTPError, App, MTeam, QBit, PluginError, torrent_hash, endpoint, base_url
 
 TORRENT = b'd4:infod6:lengthi1e4:name1:x6:pieces20:abcdefghijklmnopqrstee'
 class MT:
@@ -176,6 +176,92 @@ class Tests(unittest.TestCase):
         self.assertEqual(second['next_page'],3)
         skill=(Path(__file__).resolve().parents[1]/'skills/mteam-qbit/SKILL.md').read_text()
         self.assertIn('omit category_ids entirely and pass category=all',skill)
+    @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key','QBIT_USERNAME':'u','QBIT_PASSWORD':'p'})
+    def test_download_http_stage_and_user_agent(self):
+        cfg={'base_url':'https://example.com','download_hosts':['example.com'],'user_agent':'Configured-UA'}
+        signed='https://example.com/dl?token=SECRET'
+        for fail_at,stage in [(0,'mteam_download_link'),(1,'mteam_torrent_fetch')]:
+            http=FakeHTTP([])
+            def request(*args, **kw):
+                http.calls.append((args,kw))
+                if len(http.calls)-1 == fail_at:
+                    raise ServiceHTTPError(403,{})
+                return json.dumps({'code':0,'data':signed}).encode()
+            http.request=request
+            with self.assertRaises(StageError) as ctx:
+                MTeam(cfg,http).torrent('479504')
+            self.assertEqual(ctx.exception.diagnostics()['stage'],stage)
+            self.assertEqual(ctx.exception.http_status,403)
+            self.assertNotIn('SECRET',str(ctx.exception))
+            self.assertEqual(http.calls[0][0][2]['User-Agent'],'Configured-UA')
+            if fail_at:
+                self.assertEqual(http.calls[1][0][2],{'User-Agent':'Configured-UA'})
+        http=FakeHTTP([])
+        def reject(*args,**kw): raise ServiceHTTPError(403,{})
+        http.request=reject
+        with self.assertRaises(StageError) as ctx:
+            QBit({'base_url':'http://example.com'},http).login()
+        self.assertEqual(ctx.exception.stage,'qbit_login')
+    def test_add_stage_uncertainty_never_resends(self):
+        rid=self.prepared()
+        def reject(*args): raise StageError('qbit_add',403)
+        self.q.add=reject
+        with self.assertRaises(StageError) as ctx:self.app.submit(rid,True)
+        self.assertEqual(ctx.exception.http_status,403)
+        self.assertTrue(ctx.exception.uncertain)
+        self.assertEqual(self.app.row(rid)['state'],'unknown')
+        self.assertEqual(self.app.submit(rid)['state'],'unknown')
+    @patch.dict(os.environ,{'MTEAM_API_KEY':'test-key'})
+    def test_every_mteam_request_uses_configured_ua_at_http_boundary(self):
+        from unittest.mock import MagicMock
+        for configured in ('Custom-Browser-UA', None):
+            cfg={'base_url':'https://example.com','download_hosts':['files.example.net']}
+            if configured: cfg['user_agent']=configured
+            replies=[{'code':0,'data':{'id':'fake'}},
+                     {'code':0,'data':{'list':[]}},
+                     {'code':0,'data':{'data':[]}},
+                     {'code':0,'data':{'id':'123','name':'sample'}},
+                     {'code':0,'data':'https://files.example.net/dl?token=FAKE'}]
+            payloads=[json.dumps(x).encode() for x in replies]+[TORRENT]
+            http=HTTP()
+            responses=[]
+            for payload in payloads:
+                response=MagicMock()
+                response.status=200
+                response.read.return_value=payload
+                response.__enter__.return_value=response
+                responses.append(response)
+            http.opener.open=MagicMock(side_effect=responses)
+            mt=MTeam(cfg,http)
+            mt.test_connection(); mt.categories(); mt.search('sample')
+            mt.details('123'); mt.torrent('123')
+            requests=[call.args[0] for call in http.opener.open.call_args_list]
+            self.assertEqual([req.full_url.split('?')[0] for req in requests],
+                ['https://example.com/api/member/profile',
+                 'https://example.com/api/torrent/categoryList',
+                 'https://example.com/api/torrent/search',
+                 'https://example.com/api/torrent/detail',
+                 'https://example.com/api/torrent/genDlToken',
+                 'https://files.example.net/dl'])
+            for req in requests:
+                self.assertEqual(req.get_header('User-agent'),configured or 'MTeamQBit/1.0')
+            for req in requests[:-1]:
+                self.assertEqual(req.get_header('X-api-key'),'test-key')
+            self.assertIsNone(requests[-1].get_header('X-api-key'))
+            self.assertEqual(dict(requests[-1].header_items()),{'User-agent':configured or 'MTeamQBit/1.0'})
+    def test_post_add_lookup_failure_preserves_submitted(self):
+        rid=self.prepared()
+        lookups=[]
+        def info(digest):
+            lookups.append(digest)
+            if len(lookups)==1:return []
+            raise StageError('qbit_task_lookup',403)
+        self.q.info=info
+        with self.assertRaises(StageError) as ctx:self.app.submit(rid,True)
+        self.assertTrue(ctx.exception.uncertain)
+        self.assertEqual(ctx.exception.stage,'qbit_task_lookup')
+        self.assertEqual(self.app.row(rid)['state'],'submitted')
+        self.assertEqual(len(self.q.calls),1)
     def test_bad_endpoint(self):
         for path in ['//evil/x','https://evil','/../x','/x?key=abc']:
             with self.assertRaises(PluginError):endpoint('https://example.com',path)

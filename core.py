@@ -17,6 +17,30 @@ class PluginError(Exception):
     pass
 
 
+class StageError(PluginError):
+    def __init__(self, stage, status=None, uncertain=False):
+        self.stage = stage
+        self.http_status = status
+        self.uncertain = uncertain
+        message = 'Failed at ' + stage + (': HTTP ' + str(status) if status else '.')
+        if uncertain: message += ' Submission outcome uncertain; check status. No automatic resend.'
+        super().__init__(message)
+
+    def diagnostics(self):
+        return {'stage':self.stage, 'http_status':self.http_status,
+                'submission_outcome_uncertain':self.uncertain}
+
+
+def stage_call(stage, fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except StageError:
+        raise
+    except Exception as error:
+        status = error.http_diagnostics['status'] if isinstance(error, ServiceHTTPError) else None
+        raise StageError(stage, status) from None
+
+
 class ServiceHTTPError(PluginError):
     def __init__(self, status, headers):
         super().__init__('Service HTTP error %s (URL/body omitted).' % status)
@@ -329,7 +353,7 @@ class MTeam:
         return self.public(data)
 
     def torrent(self, rid):
-        url = self.api(self.cfg.get('download_path', '/api/torrent/genDlToken'), {'id': resource_id(rid)}, True)
+        url = stage_call('mteam_download_link', self.api, self.cfg.get('download_path', '/api/torrent/genDlToken'), {'id': resource_id(rid)}, True)
         if not isinstance(url, str):
             raise PluginError('Unexpected M-Team download schema.')
         p = urllib.parse.urlsplit(url)
@@ -337,7 +361,7 @@ class MTeam:
         if p.scheme != 'https' or p.hostname not in hosts or p.username or p.password or p.fragment or p.port not in (None, 443):
             raise PluginError('Torrent URL host is not allowlisted. Verify hostname in config, never paste secret URL into chat.')
         # No API credential forwarded to download host; signed token stays inside process.
-        return self.http.request('GET', url, limit=8 * 1024 * 1024)
+        return stage_call('mteam_torrent_fetch', self.http.request, 'GET', url, {'User-Agent': self.cfg.get('user_agent', 'MTeamQBit/1.0')}, limit=8 * 1024 * 1024)
 
 
 class QBit:
@@ -352,19 +376,19 @@ class QBit:
     def login(self):
         data = urllib.parse.urlencode({'username': secret(self.cfg.get('username_env', 'QBIT_USERNAME')),
                                       'password': secret(self.cfg.get('password_env', 'QBIT_PASSWORD'))}).encode()
-        if self.call('auth/login', data).strip() != b'Ok.':
+        if stage_call('qbit_login', self.call, 'auth/login', data).strip() != b'Ok.':
             raise PluginError('qBittorrent login failed.')
 
     def info(self, digest):
         if not re.fullmatch('[a-f0-9]{40}', digest):
             raise PluginError('Invalid torrent hash.')
-        result = decode_json(self.call('torrents/info?hashes=' + digest))
+        result = decode_json(stage_call('qbit_task_lookup', self.call, 'torrents/info?hashes=' + digest))
         if not isinstance(result, list):
             raise PluginError('Unexpected qBittorrent info schema.')
         return [{k: item.get(k) for k in ('hash', 'name', 'state', 'progress', 'dlspeed', 'eta', 'save_path')} for item in result]
 
     def add(self, torrent, path, category, paused):
-        version = self.call('app/version').decode().strip().lstrip('v')
+        version = stage_call('qbit_version', self.call, 'app/version').decode().strip().lstrip('v')
         if not re.match(r'^[45]\.', version):
             raise PluginError('Supported qBittorrent versions: 4.x / 5.x.')
         fields = {'savepath': path, 'category': category, 'autoTMM': 'false',
@@ -374,7 +398,7 @@ class QBit:
         for key, value in fields.items():
             chunks.append(('--%s\r\nContent-Disposition: form-data; name="%s"\r\n\r\n%s\r\n' % (boundary, key, value)).encode())
         chunks += [('--%s\r\nContent-Disposition: form-data; name="torrents"; filename="resource.torrent"\r\nContent-Type: application/x-bittorrent\r\n\r\n' % boundary).encode(), torrent, ('\r\n--%s--\r\n' % boundary).encode()]
-        if self.call('torrents/add', b''.join(chunks), 'multipart/form-data; boundary=' + boundary).strip() != b'Ok.':
+        if stage_call('qbit_add', self.call, 'torrents/add', b''.join(chunks), 'multipart/form-data; boundary=' + boundary).strip() != b'Ok.':
             raise PluginError('qBittorrent did not acknowledge submission; check status before retrying.')
 
 
@@ -472,13 +496,21 @@ class App:
             return {'state': 'present', 'tasks': existing, 'note': 'Existing task preserved; its save path was not changed.'}
         try:
             self.qb.add(torrent, row['path'], row['category'], bool(row['paused']))
-        except Exception:
+        except Exception as error:
             self.db.execute("UPDATE requests SET state='unknown' WHERE id=?", (request_id,))
             self.db.commit()
-            raise PluginError('Submission outcome uncertain; check status. No automatic resend.') from None
+            if isinstance(error, StageError):
+                raise StageError(error.stage, error.http_status, uncertain=True) from None
+            raise StageError('qbit_add', uncertain=True) from None
         self.db.execute("UPDATE requests SET state='submitted' WHERE id=?", (request_id,))
         self.db.commit()
-        tasks = self.qb.info(digest)
+        try:
+            tasks = self.qb.info(digest)
+        except Exception as error:
+            # Add was acknowledged; keep submitted in DB and never advise resending.
+            stage = error.stage if isinstance(error, StageError) else 'qbit_task_lookup'
+            status = error.http_status if isinstance(error, StageError) else None
+            raise StageError(stage, status, uncertain=True) from None
         return {'state': 'present' if tasks else 'submitted_not_yet_visible', 'hash': digest, 'tasks': tasks}
 
     def status(self, request_id):
