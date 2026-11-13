@@ -45,3 +45,7 @@ Prepared requests freeze the resolved path even if the default later changes. Pr
 - Supported mode names are official API enum values, not a guarantee of nonempty results or identical behavior. rankings is a special view, not category IDs.
 
 - waterfall and rss search modes are currently unsupported. Never send them or silently replace an old configured default; ask the user to choose a supported mode or change the default in the Web page. Live category group names are separate from mode values.
+
+## Short command
+- /mt is a native read-only command for help, search, categories, list, detail and path. It never authorizes or performs downloads/deletions. Continue using existing tool confirmation workflows for writes.
+- Plugin ID, skill name and storage paths are unchanged. The existing skill remains mteam-qbit:mteam-qbit.

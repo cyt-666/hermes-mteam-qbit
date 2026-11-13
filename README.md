@@ -1,6 +1,6 @@
 # M-Team + qBittorrent
 
-Hermes 原生插件，支持搜索馒头资源、查看详情，并将明确选择的种子提交到 qBittorrent。当前版本：**0.6.0**。
+Hermes 原生插件，支持搜索馒头资源、查看详情，并将明确选择的种子提交到 qBittorrent。当前版本：**0.7.0**。
 
 站点、下载器、凭据和默认保存路径均通过 Hermes Web Dashboard 配置。插件内附 Skill，无需单独安装。
 
@@ -42,7 +42,7 @@ Hermes 原生插件，支持搜索馒头资源、查看详情，并将明确选�
 ├── dashboard/
 │   ├── manifest.json
 │   ├── plugin_api.py
-│   └── dist/index-0.6.0.js
+│   └── dist/index-0.7.0.js
 └── skills/mteam-qbit/SKILL.md
 ```
 
@@ -93,6 +93,24 @@ Dashboard 可独立管理时，只需重启相应进程，不要求重启整个�
 网页支持配置下载域名白名单、搜索模式、搜索/详情/下载令牌端点、详情 form/JSON 编码、origin，以及准备请求有效期（默认 900 秒，范围 60–86400 秒）。
 
 下载域名须为精确可信主机名，不含协议、路径或通配符。提交的种子 URL 仅允许 HTTPS/443。Hermes API 请求不跟随重定向；提交后的取种、跳转及网络策略由 qBittorrent 控制。Hermes 发往 M-Team 的 API 请求使用配置的 User-Agent，不保存或发送 Cookie；API Key 不转发至种子 URL。qBittorrent 使用自己的取种请求头和网络/代理配置，不继承插件 User-Agent。qBittorrent 单独保留登录 Cookie。
+
+## /mt 快捷命令
+
+插件 ID、显示名、技能名和存储路径均保持不变。本次仅新增 `/mt` 命令，无需迁移配置。
+
+插件通过 Hermes 原生 `register_command` 注册 **`/mt`**，在支持插件斜杠命令的宿主会话中可用：
+
+```text
+/mt
+/mt search ubuntu
+/mt search --mode movie --page 2 --limit 10 关键词
+/mt categories
+/mt list 2
+/mt detail 123
+/mt path
+```
+
+命令仅提供帮助与只读操作，使用宿主工具派发，不直接下载、删除或运行 shell；下载/删除仍通过自然语言与已有工具确认流程。命令返回查询结果，不会把任意参数作为系统提示或自动启动 Agent。命令路径不等于 Agent 的逐次工具审批，访问边界由宿主命令入口及渠道准入控制，只向可信账号开放。命令名冲突时宿主可能拒绝注册；某些网页或渠道不会提供原生命令补全，仍可使用技能和工具。
 
 ## 使用方法
 
@@ -190,14 +208,14 @@ hermes plugins disable mteam-qbit
 
 ```sh
 python -m unittest discover -s tests -v
-node --check dashboard/dist/index-0.6.0.js
+node --check dashboard/dist/index-0.7.0.js
 # 可选前端 DOM 模拟测试
 cd tests/ui && npm install --ignore-scripts && npm test
 ```
 
 API 测试使用 fastapi/httpx；隔离 HTTPS 集成测试需要 openssl。前端测试依赖位于 `tests/ui/package.json`。
 
-当前版本通过 84 项 Python 测试及 JavaScript 语法检查。测试覆盖本机隔离 HTTPS 模拟服务、Cookie 隔离、URL 提交、异步标签查询、分页列表、两种删除模式和错误诊断；删除测试仅针对模拟服务。模拟服务不是实际 M-Team 或 qBittorrent，不能替代真实环境端到端验证。
+当前版本通过 89 项 Python 测试及 JavaScript 语法检查。测试覆盖本机隔离 HTTPS 模拟服务、Cookie 隔离、URL 提交、异步标签查询、分页列表、两种删除模式和错误诊断；删除测试仅针对模拟服务。模拟服务不是实际 M-Team 或 qBittorrent，不能替代真实环境端到端验证。
 
 `.gitignore` 排除配置、env、SQLite、种子和缓存，不能清理已提交到历史的秘密。项目当前未指定开源许可证。
 
@@ -205,6 +223,7 @@ API 测试使用 fastapi/httpx；隔离 HTTPS 集成测试需要 openssl。前�
 
 - [Hermes v0.23.1](https://github.com/NousResearch/hermes-agent/releases/tag/v0.23.1)
 - [Hermes Web Dashboard SDK](https://github.com/NousResearch/hermes-agent/blob/v0.23.1/web/src/plugins/sdk.d.ts)
+- [Hermes 原生命令与工具派发](https://github.com/NousResearch/hermes-agent/blob/v0.23.1/hermes_cli/plugins_context.py)
 - [Hermes Skill 注册](https://github.com/NousResearch/hermes-agent/blob/v0.23.1/hermes_cli/plugins_content.py)
 - [M-Team 分类接口公开适配](https://github.com/libertypi/mtsearch/blob/main/mtsearch.py)
 - [M-Team SDK 分类结构](https://github.com/llbox/mt-sdk/blob/52e7beb91954/pkg/mt/enums.go)

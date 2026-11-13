@@ -563,6 +563,8 @@ class Tests(unittest.TestCase):
             def __init__(self):self.tools=[]
             def register_tool(self,**kwargs):self.tools.append(kwargs)
             def register_skill(self,**kwargs):self.skill=kwargs
+            def register_command(self,**kwargs):self.command=kwargs
+            def dispatch_tool(self,*args,**kwargs):return "{}"
         ctx=Context();plugin.register(ctx)
         self.assertEqual(len(ctx.tools),9)
         self.assertTrue(ctx.skill["path"].is_file())

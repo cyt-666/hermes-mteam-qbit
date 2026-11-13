@@ -51,6 +51,79 @@ def invoke(name, params):
             app.db.close()
 
 
+COMMAND_HELP = '''MT 只读命令：
+/mt search [--mode normal|adult|movie|music|tvshow|anime|rankings|all] [--page N] [--limit N] 关键词
+/mt categories
+/mt list [页码]
+/mt detail 资源ID
+/mt path
+命令不支持添加下载、删除或执行 shell。下载和删除请通过正常对话明确授权。'''
+
+
+def parse_mt_command(raw_args):
+    """Parse an explicitly read-only command; never execute shell or accept tool names."""
+    import shlex
+    import re
+    if not isinstance(raw_args, str) or len(raw_args) > 4096 or any(ord(c) < 32 and c != '\t' for c in raw_args):
+        raise ValueError('Invalid MT command.')
+    try:
+        words = shlex.split(raw_args)
+    except ValueError:
+        raise ValueError('Invalid MT command.') from None
+    if not words or words == ['help']:
+        return None, {}
+    verb, rest = words[0], words[1:]
+    if verb in ('categories', 'path') and not rest:
+        return ('pt_categories' if verb == 'categories' else 'pt_destinations'), {}
+    def integer(text, maximum):
+        if not re.fullmatch(r'[0-9]{1,4}', text) or not 1 <= int(text) <= maximum:
+            raise ValueError('Invalid MT command.')
+        return int(text)
+    if verb == 'list' and len(rest) <= 1:
+        return 'pt_list_downloads', {'page':integer(rest[0],1000) if rest else 1}
+    if verb == 'detail' and len(rest) == 1 and re.fullmatch(r'[0-9]{1,20}', rest[0]):
+        return 'pt_details', {'resource_id':rest[0]}
+    if verb == 'search':
+        params, query, index, options = {}, [], 0, True
+        while index < len(rest):
+            value = rest[index]
+            if options and value == '--':
+                options = False; index += 1; continue
+            if options and value.startswith('--'):
+                key = value[2:]
+                if key not in ('mode','page','limit') or key in params or index + 1 >= len(rest):
+                    raise ValueError('Invalid MT command.')
+                argument = rest[index+1]
+                if key == 'mode':
+                    if argument not in TOOLS['pt_search'][1]['mode']['enum']:
+                        raise ValueError('Invalid MT command.')
+                    params[key] = argument
+                else:
+                    params[key] = integer(argument,1000 if key == 'page' else 50)
+                index += 2
+            else:
+                query.append(value); index += 1
+        params['query'] = ' '.join(query).strip()
+        if not 1 <= len(params['query']) <= 200:
+            raise ValueError('Invalid MT command.')
+        return 'pt_search', params
+    raise ValueError('Invalid MT command.')
+
+
+def run_mt_command(ctx, raw_args):
+    try:
+        name, params = parse_mt_command(raw_args)
+    except ValueError:
+        return 'MT 命令格式无效。输入 /mt help 查看用法。'
+    if name is None:
+        return COMMAND_HELP
+    try:
+        result = ctx.dispatch_tool(name, params)
+        return result if isinstance(result, str) else json.dumps(result,ensure_ascii=False)
+    except Exception:
+        return 'MT 工具调用未完成，请检查宿主权限与插件状态。'
+
+
 def register(ctx):
     ctx.register_skill(name='mteam-qbit', path=Path(__file__).parent / 'skills' / 'mteam-qbit' / 'SKILL.md',
                        description='Search authorized M-Team resources and submit explicitly selected tasks to qBittorrent with a default or user-specified absolute save path.')
@@ -60,3 +133,11 @@ def register(ctx):
         ctx.register_tool(name=name, toolset='mteam_qbit',
                           schema={'name':name,'description':description,'parameters':{'type':'object','properties':properties,'required':required,'additionalProperties':False}},
                           handler=handler)
+
+    if callable(getattr(ctx, 'register_command', None)) and callable(getattr(ctx, 'dispatch_tool', None)):
+        ctx.register_command(name='mt', handler=lambda raw_args: run_mt_command(ctx,raw_args),
+                             description='MT read-only search, categories and qBittorrent task browsing.',
+                             args_hint='help | search | categories | list | detail | path')
+    else:
+        import warnings
+        warnings.warn('MT slash command unavailable: host lacks command/dispatch API; tools remain registered.', RuntimeWarning)
